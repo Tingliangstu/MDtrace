@@ -1,4 +1,4 @@
-# mdtrace — Molecular Dynamics Trace
+# mdtrace — MD trajectory Trace
 
 > **Trace the physics inside your MD trajectory.**
 
