@@ -3,6 +3,7 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+import os
 import re
 from pathlib import Path
 
@@ -126,6 +127,10 @@ _sync_publications_page()
 
 import sphinx_rtd_theme
 html_theme = "sphinx_rtd_theme"
+html_baseurl = os.environ.get(
+    'READTHEDOCS_CANONICAL_URL',
+    'https://mdtrace.readthedocs.io/en/latest/',
+)
 
 #html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
