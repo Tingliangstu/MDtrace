@@ -10,8 +10,8 @@ from pathlib import Path
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'mdtrace'
-copyright = '2025-2026, Ting Liang; Wenwu Jiang'
-author = 'Ting Liang; Wenwu Jiang'
+copyright = '2025-2026, Ting Liang'
+author = 'Ting Liang'
 release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
