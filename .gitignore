@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.hdf5
+*.h5
+.SED
+.Qpts
+.THz
+.Q_distances_and_labels
+.Fre_lifetime
+.dsf*
+_LORENTZ-*
+*.png
+ref/
