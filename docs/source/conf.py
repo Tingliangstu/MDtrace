@@ -96,7 +96,7 @@ def _sync_publications_page():
                 'synced from '
                 '`publications/readme.md <https://github.com/Tingliangstu/mdtrace/tree/main/publications>`_. '
                 'To update it, edit ``publications/readme.md`` and push the '
-                'change to GitHub; GitHub Pages will refresh the page during '
+                'change to GitHub; Read the Docs will refresh the page during '
                 'the next build.',
                 '',
             ])

@@ -178,4 +178,4 @@ Example input files are provided in the `example/` directory. Reproducing these 
 
 ## Documentation
 
-Full documentation is available at [https://tingliangstu.github.io/MDtrace/](https://tingliangstu.github.io/MDtrace/).
+Full documentation is available at [https://mdtrace.readthedocs.io/en/latest/](https://mdtrace.readthedocs.io/en/latest/).
