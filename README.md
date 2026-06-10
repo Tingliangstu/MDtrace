@@ -1,8 +1,24 @@
-# MDtrace — Molecular Dynamic {Tra}jectory TraCE
+# MDtrace — Molecular Dynamic Trajectory Trace
 
 > **Trace the physics inside your MD trajectory.**
 
-**mdtrace** extracts multiple experimental observables from a single molecular dynamics trajectory: phonon spectral energy density (SED), dynamic structure factors \(S(\mathbf{Q},\omega)\), electron energy-loss spectra, and more.
+**MDtrace** extracts multiple experimental observables from a single molecular dynamics trajectory: phonon spectral energy density (SED), dynamic structure factors \(S(\mathbf{Q},\omega)\), electron energy-loss spectra, and more.
+
+### Why the name?
+
+```
+ Molecular        Dynamic        Trajectory    Trace
+    │                │               │            │
+    ▼                ▼               ▼            ▼
+   [MD]        +   [MD]        +  [tra]   +   [ce]
+    │                │               │            │
+    └────────────────┘               └────────────┘
+         MD                               trace
+
+                    ──▶  MDtrace  ◀──
+```
+
+The name is self-contained in the phrase: **M**olecular **D**ynamic **Tra**jectory **Trace**. The `MD` captures the simulation method, and `trace` is the action — tracing phonons, tracing spectra, tracing the physics hidden in every atom's path.
 
 ---
 
