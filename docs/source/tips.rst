@@ -73,22 +73,21 @@ settings are ready. After SED files are written, use ``plot_SED = 1`` for
 plotting and fitting. This avoids recompressing large trajectories each time
 you only want to tune figure or fitting parameters.
 
-Sync Documentation to ReadTheDocs
----------------------------------
+Publish Documentation with GitHub Pages
+---------------------------------------
 
 The online manual is built from the files under ``docs/source``. The repository
-also contains ``.readthedocs.yml``, so ReadTheDocs rebuilds the manual after the
-documentation changes are pushed to GitHub.
+contains ``.github/workflows/docs.yml``, so GitHub Actions rebuilds and deploys
+the manual after documentation changes are pushed to ``main``.
 
 Recommended update workflow:
 
 .. code-block:: bash
 
    python -m sphinx -b html docs/source docs/_build/html
-   git add README.md docs/source example publications .readthedocs.yml
+   git add README.md docs/source .github/workflows/docs.yml
    git commit -m "Update mdtrace documentation"
    git push
 
-For the publication list, edit only ``publications/readme.md``. During each
-Sphinx build, mdtrace copies that file into the manual as the ``Publications``
-page, so the online page stays synchronized after ReadTheDocs rebuilds.
+Update ``docs/source/publications.rst`` when a new publication should appear in
+the online manual.

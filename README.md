@@ -178,4 +178,4 @@ Example input files are provided in the `example/` directory. Reproducing these 
 
 ## Documentation
 
-Full documentation is available at [https://pysed.readthedocs.io](https://pysed.readthedocs.io) (pySED docs; mdtrace-specific docs coming soon).
+Full documentation is available at [https://tingliangstu.github.io/mdtrace/](https://tingliangstu.github.io/mdtrace/).

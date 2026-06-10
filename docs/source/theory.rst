@@ -7,7 +7,7 @@ dispersion and lifetime from molecular dynamics simulations", J. Appl. Phys.
 **138**, 075101 (2025) [Liang2025]_.
 
 What mdtrace Computes
--------------------
+---------------------
 
 The spectral energy density (SED) method projects atomic velocities from a
 molecular dynamics trajectory into reciprocal space. The resulting intensity
@@ -88,7 +88,7 @@ requires a lattice-dynamics calculation and can be expensive for complex
 systems.
 
 Eigenvector-Free SED Used by mdtrace
-----------------------------------
+------------------------------------
 
 mdtrace currently implements the eigenvector-free SED expression derived by
 Thomas et al. [Thomas2010]_. This expression sums over the basis atoms and Cartesian

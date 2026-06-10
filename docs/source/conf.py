@@ -10,9 +10,9 @@ from pathlib import Path
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'mdtrace'
-copyright = '2025, Ting Liang; Wenwu Jiang'
+copyright = '2025-2026, Ting Liang; Wenwu Jiang'
 author = 'Ting Liang; Wenwu Jiang'
-release = '2.4.0'
+release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -95,7 +95,7 @@ def _sync_publications_page():
                 'synced from '
                 '`publications/readme.md <https://github.com/Tingliangstu/mdtrace/tree/main/publications>`_. '
                 'To update it, edit ``publications/readme.md`` and push the '
-                'change to GitHub; ReadTheDocs will refresh the page during '
+                'change to GitHub; GitHub Pages will refresh the page during '
                 'the next build.',
                 '',
             ])
@@ -133,7 +133,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ['_static']
 
 # Specify the logo file
-html_logo = '_static/logo.png'  # Ensure 'logo.png' is placed inside the '_static' directory
+html_logo = '_static/logo.svg'
 
 # Theme options
 html_theme_options = {

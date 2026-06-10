@@ -1,5 +1,5 @@
 Citing mdtrace
-============
+==============
 
 If you use **mdtrace** in your research or publications, please cite the mdtrace
 paper and the original SED method paper:

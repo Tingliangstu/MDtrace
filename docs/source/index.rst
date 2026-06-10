@@ -4,7 +4,7 @@
    contain the root `toctree` directive.
 
 Welcome to mdtrace's documentation!
-=================================
+===================================
 
 **mdtrace** is a Python package for calculating kinetic-energy-weighted phonon
 spectral energy density (SED) from molecular dynamics trajectories. It can read

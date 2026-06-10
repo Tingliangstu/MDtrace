@@ -99,7 +99,7 @@ Use ``lammps_unit = 'metal'`` for velocities in Angstrom/ps and
 ``lammps_unit = 'real'`` for velocities in Angstrom/fs.
 
 What to Check Before Running mdtrace
-----------------------------------
+------------------------------------
 
 - ``num_atoms`` equals the number of atoms in the trajectory and the maximum
   atom id in ``basis.in``.
