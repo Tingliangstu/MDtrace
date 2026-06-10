@@ -1,4 +1,4 @@
-# mdtrace — MD trajectory Trace
+# MDtrace — Molecular Dynamic {Tra}jectory TraCE
 
 > **Trace the physics inside your MD trajectory.**
 
@@ -41,7 +41,7 @@ mdtrace -h
 pip install git+https://github.com/Tingliangstu/mdtrace.git
 ```
 
-### From PyPI *(coming soon)*
+### From PyPI
 
 ```bash
 pip install mdtrace
@@ -54,36 +54,51 @@ pip install mdtrace
 Create an `input.in` file:
 
 ```ini
-action      = thinking
-method      = sed
+# ==================== Control ====================
+action      = thinking     # thinking | compute | plot | fit
+method      = sed          # sed | dsf | eels
+backend     = numpy        # numpy | cupy
 
-num_atoms          = 16000
-total_num_steps    = 100000
+# ==================== MD simulation ====================
+num_atoms          = 17920
+total_num_steps    = 500000
 time_step          = 1
-output_data_stride = 20
+output_data_stride = 8
 file_format        = gpumd
-dump_xyz_file      = dump.xyz
-basis_lattice_file = basis.in
-out_files_name     = my_system
-output_hdf5        = vel_pos_compress.hdf5
+dump_xyz_file      = ../gpumd_run/dump.xyz
+basis_lattice_file = ../structure/basis.in
+out_files_name     = CNT
 
-supercell_dim  = 20 20 20
-prim_unitcell  = 3.867 0 0 1.933 3.349 0 1.933 1.116 3.157
+# ==================== Structure ====================
+supercell_dim  = 1 1 160
+prim_unitcell  = 237.433 0 0 0 237.433 0 0 0 2.463
 rescale_prim   = 1
 
-num_qpaths  = 5
-q_path_name = GXUKGL
-q_path      = 0.0 0.0 0.0  0.5 0.0 0.5  0.625 0.25 0.625  0.375 0.375 0.75  0.0 0.0 0.0  0.5 0.5 0.5
+# ==================== Q-points ====================
+num_qpaths  = 1
+q_path_name = GA
+q_path      = 0.0 0.0 0.0  0.0 0.0 0.5
 
+# ==================== Computation ====================
 compress     = 1
 num_splits   = 5
 use_parallel = 1
-max_cores    = 4
+max_cores    = 36
 
+# ==================== Plot ====================
+plot_cutoff_freq = 50.0
+plot_interval    = 10.0
+qpoint_slice_index = 0
+plot_slice       = 1
+if_show_figures  = 0
+
+# ==================== Lorentz fit ====================
 lorentz                = 1
 lorentz_fit_all_qpoint = 1
-peak_height            = 1.0e-6
-peak_prominence        = 2.0e-6
+lorentz_fit_cutoff     = 5
+peak_height            = 1.0e-5
+peak_prominence        = 2.0e-5
+initial_guess_hwhm     = 0.005
 ```
 
 Then run:
@@ -92,19 +107,21 @@ Then run:
 mdtrace input.in
 ```
 
-**thinking mode** will automatically compress → compute SED → plot → fit Lorentzian peaks. Each subsequent run picks up where it left off.
+**thinking mode** automatically compresses the trajectory, computes SED, plots the dispersion, and fits Lorentzian peaks. Each subsequent run picks up where it left off.
 
 For DSF:
 
 ```ini
-action      = thinking
-method      = dsf
+# ==================== Control ====================
+action      = thinking     # thinking | compute | plot | fit
+method      = dsf          # sed | dsf | eels
 
 # ... (same MD & structure settings as above)
 
+# ==================== DSF ====================
 experiment     = neutron
-atom_types     = Si
-dsf_qpoints    = 0.0 0.0 0.0  0.5 0.0 0.0  0.0 0.5 0.0
+atom_types     = Mo S S
+dsf_qpoints    = 0.0 0.0 0.0  0.5 0.0 0.0
 dsf_num_blocks = 5
 ```
 
