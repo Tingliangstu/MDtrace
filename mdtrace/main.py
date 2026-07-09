@@ -13,17 +13,17 @@ from mdtrace.pipeline import run as run_pipeline
 
 
 LOGO = r"""
-     __  __ ____ _____ ____      _    ____ _____
-    |  \/  |  _ \_   _|  _ \    / \  / ___| ____|
-    | |\/| | | | || | | |_) |  / _ \| |   |  _|
-    | |  | | |_| || | |  _ <  / ___ \ |___| |___
-    |_|  |_|____/ |_| |_| \_\/_/   \_\____|_____|
+           __  __     ____      _____     ____         _         ____     _____
+          |  \/  |   |  _ \    |_   _|   |  _ \       / \       / ___|   | ____|
+          | |\/| |   | | | |     | |     | |_) |     / _ \     | |       |  _|
+          | |  | |   | |_| |     | |     |  _ <     / ___ \    | |___    | |___
+          |_|  |_|   |____/      |_|     |_| \_\   /_/   \_\    \____|   |_____|
         """
 
 TAGLINE = f"""
-        Molecular Dynamics Trace   v{__version__}
-        trace the physics inside your MD trajectory
-        Author: liangting.zj@gmail.com
+          Molecular Dynamics Trace   v{__version__}
+          trace the physics inside your MD trajectory
+          Author: liangting.zj@gmail.com
         """
 
 
