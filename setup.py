@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="mdtrace",
-    version="1.0.1",
+    version="1.0.2",
     description="Molecular Dynamics Trace — trace the physics inside your MD trajectory",
     author="Ting Liang",
     author_email="liangting.zj@gmail.com",
