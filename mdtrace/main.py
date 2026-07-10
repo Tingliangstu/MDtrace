@@ -12,25 +12,37 @@ from mdtrace.parser import read_input
 from mdtrace.pipeline import run as run_pipeline
 
 
-LOGO = r"""
-           __  __     ____      _____     ____         _         ____     _____
-          |  \/  |   |  _ \    |_   _|   |  _ \       / \       / ___|   | ____|
-          | |\/| |   | | | |     | |     | |_) |     / _ \     | |       |  _|
-          | |  | |   | |_| |     | |     |  _ <     / ___ \    | |___    | |___
-          |_|  |_|   |____/      |_|     |_| \_\   /_/   \_\    \____|   |_____|
-        """
+_LOGO_LINES = (
+    r" __  __   ____   _____   ____       _       ____   _____",
+    r"|  \/  | |  _ \ |_   _| |  _ \     / \     / ___| | ____|",
+    r"| |\/| | | | | |   | |   | |_) |   / _ \   | |     |  _|",
+    r"| |  | | | |_| |   | |   |  _ <   / ___ \  | |___  | |___",
+    r"|_|  |_| |____/    |_|   |_| \_\ /_/   \_\  \____| |_____|",
+)
 
-TAGLINE = f"""
-          Molecular Dynamics Trace   v{__version__}
-          trace the physics inside your MD trajectory
-          Author: liangting.zj@gmail.com
-        """
+_BANNER_INDENT = "  "
+_BANNER_WIDTH = max(len(line) for line in _LOGO_LINES)
+
+
+def _center_banner_line(text):
+    """Center one line within the logo block without trailing whitespace."""
+    return f"{_BANNER_INDENT}{text:^{_BANNER_WIDTH}}".rstrip()
+
+
+LOGO = "\n".join(f"{_BANNER_INDENT}{line}" for line in _LOGO_LINES)
+TAGLINE = "\n".join(
+    _center_banner_line(line)
+    for line in (
+        f"Molecular Dynamics Trace   v{__version__}",
+        "trace the physics inside your MD trajectory",
+        "Author: liangting.zj@gmail.com",
+    )
+)
 
 
 def _print_banner():
-    print(LOGO)
-    print(TAGLINE)
-    print("=" * 78)
+    print(f"\n{LOGO}\n\n{TAGLINE}\n")
+    print(f"{_BANNER_INDENT}{'=' * _BANNER_WIDTH}")
 
 
 def _show_help():
