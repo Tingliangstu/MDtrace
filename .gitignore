@@ -16,3 +16,4 @@ docs/_build/
 _LORENTZ-*
 *.png
 ref/
+.idea/
