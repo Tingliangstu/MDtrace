@@ -142,3 +142,10 @@ atom_data = [
     [117, "Uus", "Ununseptium", 0],
     [118, "Uuo", "Ununoctium", 0],
 ]
+
+
+# Element symbols and standard masses used for input validation.
+atomic_masses = {
+    symbol: mass
+    for _, symbol, _, mass in atom_data[1:]
+}

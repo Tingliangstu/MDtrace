@@ -23,20 +23,12 @@ thinking mode chains all needed steps; individual actions force one step.
 import os
 import sys
 import time
+from pathlib import Path
 
-from mdtrace.sed import Compressor
-from mdtrace.sed import construct_BZ
-from mdtrace.sed import Phonon
-from mdtrace.sed import FileIO
-from mdtrace.sed import Plot_SED
-from mdtrace.sed import Lorentz
-
+from mdtrace.io.prepare import prepare_trajectory
+from mdtrace.sed import FileIO, Lorentz, Phonon, Plot_SED, construct_BZ
 
 # ── step detectors ──────────────────────────────────────────────
-
-def _hdf5_ready(params):
-    return os.path.exists(params.output_hdf5)
-
 
 def _sed_ready(params):
     return os.path.exists(params.out_files_name + ".SED")
@@ -64,17 +56,24 @@ def _dsf_ready(params):
 
 # ── step runners ────────────────────────────────────────────────
 
-def step_compress(params):
-    """Compress MD trajectory → HDF5."""
-    if _hdf5_ready(params):
-        print(f"  ✓  {params.output_hdf5}  already exists — skipping compress")
-        return
+def step_prepare_trajectory(params):
+    """Resolve every supported trajectory to one readable NetCDF file."""
+    source = Path(params.trajectory_file)
 
-    print(f"  ▶  Compressing trajectory → {params.output_hdf5} ...")
     t0 = time.perf_counter()
-    Compressor.compress(params)
+    prepared, source_format = prepare_trajectory(
+        source=source,
+        lammps_unit=params.lammps_unit,
+        batch_size=params.netcdf_batch_size,
+        compression_level=params.netcdf_compression_level,
+    )
+    params.source_format = source_format
+    params.trajectory_path = str(prepared)
     elapsed = time.perf_counter() - t0
-    print(f"  ✓  Compress done ({elapsed:.1f} s)")
+    if prepared == source:
+        print(f"  ✓  Reading NetCDF trajectory: {prepared}")
+    else:
+        print(f"  ✓  Trajectory ready: {prepared} ({elapsed:.1f} s)")
 
 
 def step_compute_sed(params):
@@ -130,7 +129,7 @@ def step_fit_sed(params):
             print("  ▶  Lorentz fitting all Q-points ...")
             data = FileIO.load_data(params)
             for j in range(len(data.q_distances)):
-                params.q_slice_index = j
+                params.qpoint_slice_index = j
                 params.if_show_figures = False
                 params.plot_lorentz = False
                 data_reload = FileIO.load_data(params)
@@ -174,19 +173,27 @@ def step_plot_dsf(params):
     print("  ✓  Plot done (placeholder — DSF plotter coming in next step)")
 
 
+def step_compute_eels(params):
+    """Report the status of the planned EELS method."""
+
+    print("  ERROR: EELS calculation is not implemented yet.")
+    sys.exit(1)
+
+
 # ── step registry ───────────────────────────────────────────────
 
 STEP_MAP = {
     "sed": {
-        "compress": step_compress,
         "compute":  step_compute_sed,
         "plot":     step_plot_sed,
         "fit":      step_fit_sed,
     },
     "dsf": {
-        "compress": step_compress,
         "compute":  step_compute_dsf,
         "plot":     step_plot_dsf,
+    },
+    "eels": {
+        "compute":  step_compute_eels,
     },
 }
 
@@ -212,6 +219,12 @@ def run(params):
     print(f"  mdtrace  |  method = {method}  |  action = {action}")
     print(f"{'='*60}\n")
 
+    if method == "eels":
+        step_compute_eels(params)
+
+    if action in {"thinking", "compute"}:
+        step_prepare_trajectory(params)
+
     if action == "thinking":
         # ── thinking mode: detect what needs doing ──
         _run_thinking(params, method, steps)
@@ -220,7 +233,7 @@ def run(params):
         steps[action](params)
 
     print(f"\n{'='*60}")
-    print(f"  mdtrace finished.")
+    print("  mdtrace finished.")
     print(f"{'='*60}\n")
 
 
@@ -228,18 +241,8 @@ def _run_thinking(params, method, steps):
     """Auto-detect progress and run the next needed step(s)."""
 
     if method == "sed":
-        needs_compress = not _hdf5_ready(params)
         needs_compute  = not _sed_ready(params)
         needs_fit      = params.lorentz and not _fit_ready(params)
-
-        if needs_compress:
-            print("  💡 thinking: no HDF5 found → compress + compute + plot")
-            steps["compress"](params)
-            steps["compute"](params)
-            steps["plot"](params)
-            if params.lorentz:
-                steps["fit"](params)
-            return
 
         if needs_compute:
             print("  💡 thinking: no .SED found → compute + plot")
@@ -257,22 +260,13 @@ def _run_thinking(params, method, steps):
 
         # Everything done
         print("  ✅  All steps already complete!")
-        print("      HDF5, .SED, plot, and fit data all exist.")
-        print("      To force re-run, use:")
-        print("        action = compute    # re-compute SED")
-        print("        action = plot       # re-plot")
-        print("        action = fit        # re-fit Lorentz")
+        print("      Trajectory, .SED, plot, and fit data all exist.")
+        print("      To replot, use action = plot.")
+        print("      To recompute or refit all Q points, first rename or")
+        print("      remove the corresponding existing output files.")
 
     elif method == "dsf":
-        needs_compress = not _hdf5_ready(params)
         needs_compute  = not _dsf_ready(params)
-
-        if needs_compress:
-            print("  💡 thinking: no HDF5 found → compress + compute + plot")
-            steps["compress"](params)
-            steps["compute"](params)
-            steps["plot"](params)
-            return
 
         if needs_compute:
             print("  💡 thinking: no .dsf found → compute + plot")
@@ -281,7 +275,7 @@ def _run_thinking(params, method, steps):
             return
 
         print("  ✅  All steps already complete!")
-        print("      HDF5, .dsf, and plot data all exist.")
-        print("      To force re-run, use:")
-        print("        action = compute    # re-compute DSF")
-        print("        action = plot       # re-plot S(Q,ω)")
+        print("      Trajectory, .dsf, and plot data all exist.")
+        print("      To replot, use action = plot.")
+        print("      To recompute, first rename or remove the existing")
+        print("      .dsf output file, then use action = compute.")

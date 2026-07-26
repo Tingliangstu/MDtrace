@@ -13,14 +13,6 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ****************************
-        liangting.zj@gmail.com --- Refer from Ty Sterling's script
-************************ 2021/5/15 23:03:21 **********************
-'''
-
 import numpy as np
 from mdtrace.sed import FileIO, Plot_SED
 from scipy.optimize import curve_fit
@@ -45,7 +37,7 @@ class lorentz:
             y_smooth = np.convolve(y_padded, window / window.sum(), mode='valid')
             return y_smooth
 
-        self.q_index = params.q_slice_index
+        self.q_index = params.qpoint_slice_index
         self.lorentz_fit_cutoff = params.lorentz_fit_cutoff
         self.sed = data.sed_avg[:, self.q_index]
         self.thz = data.freq_fft
@@ -80,7 +72,7 @@ class lorentz:
         
         print('*** Found {} peaks in the SED-{}-th qpoint curve, Please compare with the actual peak ***\n'.format(
             len(peaks),
-            params.q_slice_index))
+            params.qpoint_slice_index))
         
         print(
             '**** Peaks is as follows, one can tune fitting paras according them ****:\nFrequency: {0} THz\n\nPeak_height: {1} J*s\n'.format(

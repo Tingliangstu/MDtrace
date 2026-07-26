@@ -21,7 +21,14 @@ release = '1.0.0'
 extensions = ['recommonmark', 'sphinx_markdown_tables', 'nbsphinx', 'sphinx.ext.mathjax']
 
 templates_path = ['_templates']
-exclude_patterns = ['notebook/Test_num_qpoints.ipynb']
+exclude_patterns = [
+    'notebook/*',
+    'input_parameters/*.rst',
+    'example.rst',
+    'requirements.rst',
+    'tips.rst',
+    'tutorials.rst',
+]
 
 source_suffix = {
     '.rst': 'restructuredtext',

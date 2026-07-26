@@ -1,66 +1,40 @@
 Installation
 ============
 
-**mdtrace** can be installed either from the source code or via the PyPI repository.  
-Installing from source is **highly recommended**, as it is actively maintained and provides the latest updates.
-
-Download the Source Code
----------------------------
-
-You can download the source code from GitHub:
+From source
+-----------
 
 .. code-block:: bash
 
-    git clone https://github.com/Tingliangstu/mdtrace.git
+   git clone https://github.com/Tingliangstu/mdtrace.git
+   cd mdtrace
+   python -m pip install .
+   mdtrace -h
 
-Alternatively, you may download the package directly from the  
-`mdtrace GitHub repository <https://github.com/Tingliangstu/mdtrace>`_.
+The required NumPy, SciPy, netCDF4, Matplotlib, and plotting dependencies are
+installed automatically.
 
-Install mdtrace
-----------------
+Optional CuPy backend
+---------------------
 
-Navigate to the downloaded directory and install using one of the following methods:
-
-**Recommended method (via pip):**
-
-.. code-block:: bash
-
-    cd mdtrace
-    pip install .
-
-**Alternative method (via setup script):**
+Install the CuPy wheel matching the installed CUDA Toolkit:
 
 .. code-block:: bash
 
-    python setup.py install --user --prefix=
+   # Choose one
+   python -m pip install cupy-cuda12x
+   python -m pip install cupy-cuda13x
 
-Add Scripts to PATH
------------------------
-
-For convenience, you may want to copy or link the files inside the `scripts` folder  
-to a location included in your **$PATH** environment variable.
-
-.. note::
-
-    Depending on your operating system or environment configuration, if you are using conda environment this step may be done automatically.
-
-Verify Installation
-----------------------
-
-To confirm that mdtrace is installed correctly, run:
+Alternatively:
 
 .. code-block:: bash
 
-    mdtrace -h
+   conda install -c conda-forge cupy
 
-or
+Enable the GPU SED kernel with
 
-.. code-block:: bash
+.. code-block:: text
 
-    mdtrace -h
+   backend = cupy
 
-This will display the help message, including usage instructions and descriptions of input parameters.
-
-.. tip::
-
-    You can always use the `-h` flag to explore available options and understand how to prepare input files for mdtrace.
+The current implementation uses one GPU per MDtrace process.

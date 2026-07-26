@@ -7,12 +7,10 @@
 #     (at your option) any later version.
 #     MDTRACE is distributed in the hope that it will be useful,
 #     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 #     GNU General Public License for more details.
 #     You should have received a copy of the GNU General Public License
-#     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
+#     along with MDTRACE. If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-"""mdtrace version number only."""
-__version__ = "1.0.0"
+"""Internal trajectory I/O used by the mdtrace command."""

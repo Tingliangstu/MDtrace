@@ -13,16 +13,9 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ****************************
-        liangting.zj@gmail.com --- Refer from Ty Sterling's script
-************************ 2021/5/15 23:03:21 **********************
-'''
-
 import os
 import numpy as np
+
 
 def write_output(phonons, params, BZ_lattice_info):
     output_partial = getattr(params, 'output_partial', 0)
@@ -62,10 +55,8 @@ class load_data(object):
         if getattr(params, 'plot_partial_SED', 0):
 
             partial_dir = params.out_files_name + '_partial_SED'
+            element = params.plot_partial_element
             type_idx = params.plot_partial_type
-
-            if type_idx is None or type_idx < 0:
-                raise ValueError('\n*************** plot_partial_SED type index is invalid ***************')
 
             if params.plot_partial_dir is None:
                 # Sum x/y/z for the given type
@@ -74,7 +65,7 @@ class load_data(object):
                 file_z = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_z")
                 if not (os.path.exists(file_x) and os.path.exists(file_y) and os.path.exists(file_z)):
                     raise FileNotFoundError(
-                        '\n*************** plot_partial_SED type index is out of range or files missing ***************')
+                        f"partial SED files for element '{element}' are missing")
                 sed_x = np.loadtxt(file_x)
                 sed_y = np.loadtxt(file_y)
                 sed_z = np.loadtxt(file_z)
@@ -84,7 +75,8 @@ class load_data(object):
                 file_d = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_{d}")
                 if not os.path.exists(file_d):
                     raise FileNotFoundError(
-                        '\n*************** plot_partial_SED type index is out of range or file missing ***************')
+                        f"partial SED file for element '{element}' "
+                        f"and direction '{d}' is missing")
                 self.sed_avg = np.loadtxt(file_d)
 
         else:
@@ -107,8 +99,8 @@ class load_data(object):
                     self.q_labels[float(distance)] = label.strip()
 
 def write_lorentz(lorentz, params):
-    np.savetxt(params.out_files_name + '_LORENTZ-{}.params'.format(params.q_slice_index), lorentz.popt)
-    np.savetxt(params.out_files_name + '_LORENTZ-{}.error'.format(params.q_slice_index), lorentz.pcov)
+    np.savetxt(params.out_files_name + '_LORENTZ-{}.params'.format(params.qpoint_slice_index), lorentz.popt)
+    np.savetxt(params.out_files_name + '_LORENTZ-{}.error'.format(params.qpoint_slice_index), lorentz.pcov)
     print('**************** The specific parameters of the fit are successfully written ***************')
 
 def write_phonon_lifetime(lorentz, params):
@@ -121,14 +113,19 @@ def write_phonon_lifetime(lorentz, params):
         if lorentz.popt[i][2] == 0:  # don't output fitting fail frequency
             continue
 
+        # TODO: Decide how lifetime should be named and reported; see TODO.md.
+        # The current 1/(2*pi*HWHM_f) is the amplitude/coherence lifetime T2,
+        # as used by dynasor. The energy-relaxation lifetime T1 used in phonon
+        # transport is 1/(4*pi*HWHM_f) when pure dephasing is negligible.
+        # Consider reporting the fitted linewidth plus explicitly labelled T1/T2.
         out_lifetime_file += '{0:.6f} {1:.8f} \n'.format(lorentz.popt[i][0], 1/(2 * np.pi * lorentz.popt[i][2]))
         # write the file
 
-    f = open('LORENTZ-{}-th-Qpoints.Fre_lifetime'.format(params.q_slice_index), 'w')
+    f = open('LORENTZ-{}-th-Qpoints.Fre_lifetime'.format(params.qpoint_slice_index), 'w')
     f.write(out_lifetime_file)
     f.close()
 
-    print('************** LORENTZ-{}-th Qpoints.Fre_lifetime is written successfully **************'.format(params.q_slice_index))
+    print('************** LORENTZ-{}-th Qpoints.Fre_lifetime is written successfully **************'.format(params.qpoint_slice_index))
 
 def deal_total_fre_lifetime(params, total_qpoints):
 

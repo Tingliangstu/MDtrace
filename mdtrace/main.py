@@ -31,7 +31,7 @@ from mdtrace.pipeline import run as run_pipeline
 _LOGO_LINES = (
     r" __  __   ____    _____   ____       _       ____   _____",
     r"|  \/  | |  _ \  |_   _| |  _ \     / \     / ___| | ____|",
-    r"| |\/| | | | | |   | |   | |_) |   / _ \   | |     |  _|",
+    r"| |\/| | | | | |   | |   | |_) |   / _ \   | |     | |",
     r"| |  | | | |_| |   | |   |  _ <   / ___ \  | |___  | |___",
     r"|_|  |_| |____/    |_|   |_| \_\ /_/   \_\  \____| |_____|",
 )
@@ -69,7 +69,7 @@ USAGE:
     mdtrace -h
 
 DESCRIPTION:
-    mdtrace extracts multiple physical observables from a single MD trajectory:
+    mdtrace extracts multiple physical observables from MD trajectories:
 
       method = sed   →  Phonon spectral energy density + Lorentzian fitting
       method = dsf   →  Dynamic structure factor S(Q,ω) (neutron / X-ray)
@@ -82,22 +82,22 @@ DESCRIPTION:
 ── Control ───────────────────────────────────────────────────────
 
     action = thinking      # auto-detect progress (recommended!)
-    action = compute       # force re-compute
-    action = plot          # force re-plot
-    action = fit           # force re-fit (SED only)
+    action = compute       # compute when the main output is absent
+    action = plot          # plot existing numerical output
+    action = fit           # fit existing SED output
 
     method = sed           # phonon SED
     method = dsf           # dynamic structure factor
 
     backend = numpy        # CPU (default)
-    backend = cupy         # GPU  [coming soon]
+    backend = cupy         # GPU (optional CuPy installation)
 
 ── thinking mode ──────────────────────────────────────────────────
 
     thinking mode automatically detects what has been done and
     runs the next missing step:
 
-      No HDF5?         → compress + compute + plot + fit
+      Text trajectory? → convert once to .mdtrace.nc
       No .SED / .dsf?  → compute + plot + fit
       No fit data?     → plot + fit
       All done?        → reports complete, suggests re-run actions
@@ -116,7 +116,7 @@ DESCRIPTION:
     # DSF computation
     mdtrace input.in       # method=dsf, action=thinking
 
-    # Force re-compute
+    # Run the compute stage
     mdtrace input.in       # action=compute
 
 REFERENCES:

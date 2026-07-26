@@ -1,302 +1,256 @@
-Theory
-======
+SED theory and implementation
+=============================
 
-This chapter summarizes the theory used by **mdtrace**. The notation follows the
-mdtrace paper, "PYSED: A tool for extracting kinetic-energy-weighted phonon
-dispersion and lifetime from molecular dynamics simulations", J. Appl. Phys.
-**138**, 075101 (2025) [Liang2025]_.
+MDtrace implements the eigenvector-free spectral energy density (SED)
+expression used by Thomas *et al.* [Thomas2010]_ and the PYSED article
+[Liang2025]_.
 
-What mdtrace Computes
----------------------
+Eigenvector-free SED
+--------------------
 
-The spectral energy density (SED) method projects atomic velocities from a
-molecular dynamics trajectory into reciprocal space. The resulting intensity
-map, :math:`\Phi'(\mathbf{q}, \omega)`, shows where kinetic energy is
-concentrated as a function of wave vector :math:`\mathbf{q}` and angular
-frequency :math:`\omega`.
-
-The SED map can be used to:
-
-- identify phonon dispersion branches directly from MD trajectories,
-- compare finite-temperature MD results with lattice-dynamics calculations,
-- inspect anharmonic broadening and temperature effects,
-- estimate phonon lifetimes by fitting individual SED peaks.
-
-The lifetime values obtained from SED peak fitting should normally be treated as
-qualitative or semi-quantitative. For highly accurate thermal conductivity,
-methods such as HNEMD, EMD, NEMD, or appropriate Boltzmann transport workflows
-are usually more suitable.
-
-Normal-Mode SED
----------------
-
-For a periodic supercell, the velocity of basis atom :math:`b` in unit cell
-:math:`l` and Cartesian direction :math:`\alpha` is written as
-:math:`\dot{u}_{\alpha}(l,b,t)`. The corresponding normal-mode velocity is
+For basis atom :math:`b`, repeated unit cell :math:`l`, Cartesian direction
+:math:`\alpha`, and equilibrium unit-cell reference position
+:math:`\mathbf r_0(l)`,
 
 .. math::
 
-   \dot{q}(\mathbf{q},\nu,t)
+   \Phi'(\mathbf q,\omega)
    =
-   \sum_{\alpha,b,l}^{3,n,N_T}
-   \sqrt{\frac{m_b}{N_T}}
-   \dot{u}_{\alpha}(l,b,t)
-   e_{\alpha}^{*}(\mathbf{q},\nu,b)
-   \exp\left(i\mathbf{q}\cdot\mathbf{r}_0(l)\right).
-
-Here :math:`m_b` is the mass of basis atom :math:`b`,
-:math:`e_{\alpha}^{*}(\mathbf{q},\nu,b)` is the complex conjugate of the
-phonon eigenvector component, :math:`\nu` is the phonon branch index,
-:math:`N_T` is the number of unit cells, and :math:`\mathbf{r}_0(l)` is the
-equilibrium position of unit cell :math:`l`.
-
-The time-averaged kinetic energy of a normal mode is
-
-.. math::
-
-   T(\mathbf{q},\nu)
-   =
-   \frac{1}{2\tau_0}
-   \int_0^{\tau_0}
-   \left|\dot{q}(\mathbf{q},\nu,t)\right|^2 dt,
-
-where :math:`\tau_0` is the trajectory length used in the SED calculation.
-Applying the Fourier transform and Parseval's theorem gives an energy
-distribution in the frequency domain.
-
-The eigenvector-based SED is then
-
-.. math::
-
-   \Phi(\mathbf{q},\omega)
-   =
-   \frac{1}{4\pi\tau_0 N_T}
-   \sum_{\nu}^{3n}
+   \frac{1}{4\pi\tau_0N_T}
+   \sum_{\alpha=1}^{3}\sum_{b=1}^{n}m_b
    \left|
-   \sum_{\alpha}^{3}
-   \sum_b^n
    \int_0^{\tau_0}
-   \sum_l^{N_T}
-   \sqrt{m_b}\,
-   \dot{u}_{\alpha}(l,b,t)
-   e_{\alpha}^{*}(\mathbf{q},\nu,b)
-   \exp\left(i\mathbf{q}\cdot\mathbf{r}_0(l)-i\omega t\right)dt
-   \right|^2 .
+   \sum_{l=1}^{N_T}
+   \dot u_\alpha(l,b,t)
+   \exp\left[
+   i\mathbf q\cdot\mathbf r_0(l)-i\omega t
+   \right]dt
+   \right|^2.
 
-This expression resolves individual branches through the eigenvectors, but it
-requires a lattice-dynamics calculation and can be expensive for complex
-systems.
+:math:`n` is the number of basis atoms, :math:`N_T` is the number of
+repeated unit cells, :math:`m_b` is the basis-atom mass, and :math:`\tau_0`
+is the duration of one trajectory block.
 
-Eigenvector-Free SED Used by mdtrace
+Discrete Fourier transform and time step
+----------------------------------------
+
+NumPy and CuPy FFTs evaluate a discrete sum. The continuous integral is
+approximated by
+
+.. math::
+
+   \int_0^{\tau_0}v(t)e^{-i\omega t}dt
+   \approx
+   \Delta t
+   \sum_{j=0}^{N-1}v_j e^{-i\omega t_j}.
+
+Because SED contains the squared magnitude of this integral, the numerical
+normalization contains :math:`\Delta t^2`:
+
+.. math::
+
+   \Phi'_\mathrm{discrete}
+   =
+   \frac{\Delta t^2}{4\pi\tau_0N_T}
+   \sum_{\alpha,b}m_b
+   \left|
+   \operatorname{FFT}\left[
+   \sum_l
+   \dot u_\alpha(l,b,t)
+   e^{i\mathbf q\cdot\mathbf r_0(l)}
+   \right]\right|^2.
+
+The PYSED article writes the continuous integral explicitly. The dynasor
+implementation [Dynasor2025]_ likewise multiplies the squared FFT by
+``delta_t**2``.
+
+Units
+-----
+
+MDtrace converts velocity to :math:`\mathrm{m\,s^{-1}}`, time to seconds,
+and mass to kilograms. Therefore,
+
+.. math::
+
+   \Delta t\sum v
+   :
+   \quad
+   \mathrm{s}\,
+   \frac{\mathrm m}{\mathrm s}
+   =
+   \mathrm m,
+
+and
+
+.. math::
+
+   \frac{
+   m_b\left|\Delta t\sum v\right|^2
+   }{\tau_0}
+   =
+   \frac{\mathrm{kg\,m^2}}{\mathrm s}
+   =
+   \mathrm{J\,s}.
+
+The symbol :math:`m_b` denotes atomic mass. The :math:`\mathrm{m^2}` in the
+unit is metre squared and comes from the squared time-integrated velocity.
+
+Energy-preserving one-sided spectrum
 ------------------------------------
 
-mdtrace currently implements the eigenvector-free SED expression derived by
-Thomas et al. [Thomas2010]_. This expression sums over the basis atoms and Cartesian
-directions without explicitly projecting onto phonon eigenvectors:
+MDtrace folds positive and negative frequencies:
 
 .. math::
 
-   \Phi'(\mathbf{q},\omega)
+   \Phi_+(\omega_k)
    =
-   \frac{1}{4\pi\tau_0 N_T}
-   \sum_{\alpha}^{3}
-   \sum_b^n
-   m_b
-   \left|
-   \int_0^{\tau_0}
-   \sum_l^{N_T}
-   \dot{u}_{\alpha}(l,b,t)
-   \exp\left(i\mathbf{q}\cdot\mathbf{r}_0(l)-i\omega t\right)dt
-   \right|^2 .
+   \begin{cases}
+   \Phi(0), & k=0,\\
+   \Phi(+\omega_k)+\Phi(-\omega_k), & k>0.
+   \end{cases}
 
-The equivalence between the eigenvector-based and eigenvector-free total SED
-follows from the eigenvector orthonormality condition
+This preserves two-sided spectral power while writing only non-negative
+frequencies. For a classical equilibrium crystal and a commensurate Q point,
 
 .. math::
 
-   \sum_{\nu}^{3n}
-   e_{\alpha}(\mathbf{q},\nu,b)
-   e_{\beta}^{*}(\mathbf{q},\nu,b)
-   =
-   \delta_{\alpha\beta}.
+   \int_0^\infty
+   \Phi_+(\mathbf q,\omega)d\omega
+   \approx
+   \frac{1}{2}N_\mathrm{bands}k_BT,
+   \qquad
+   N_\mathrm{bands}=3n.
 
-In practice, :math:`\Phi'(\mathbf{q},\omega)` is usually sufficient for
-obtaining a kinetic-energy-weighted phonon dispersion from MD trajectories. A
-branch-resolved eigenvector projection can help separate nearly degenerate
-modes, but that is not the current production workflow in mdtrace.
+MDtrace writes ordinary frequency in THz and SED in :math:`\mathrm{J\,s}`.
+Since
+
+.. math::
+
+   d\omega
+   =
+   2\pi\,10^{12}\,df_\mathrm{THz},
+
+an effective SED temperature can be checked with
+
+.. code-block:: python
+
+   import numpy as np
+
+   k_B = 1.380649e-23
+   prefix = "CNT"
+   q_index = 1
+   n_basis = 2
+
+   frequency_thz = np.loadtxt(prefix + ".THz")
+   sed = np.loadtxt(prefix + ".SED")[:, q_index]
+   energy_joule = (
+       2 * np.pi * 1.0e12
+       * np.trapz(sed, frequency_thz)
+   )
+   temperature_sed = energy_joule / (
+       0.5 * (3 * n_basis) * k_B
+   )
+   print(f"SED temperature: {temperature_sed:.2f} K")
+
+Finite sampling, constraints, removed center-of-mass motion, and Γ-point
+translational modes cause deviations. At Γ, the three translational modes may
+be absent, giving approximately :math:`(3n-3)k_BT/2`.
+
+Commensurate Q points
+---------------------
+
+Write the supercell and primitive-cell matrices as
+
+.. math::
+
+   \mathbf S=\mathbf P\mathbf p.
+
+A reduced wave vector is commensurate when
+
+.. math::
+
+   \mathbf q_\mathrm{red}\mathbf P^T\in\mathbb Z^3.
+
+For a path
+
+.. math::
+
+   \mathbf q(f)
+   =
+   \mathbf q_\mathrm{start}
+   +f\left(
+   \mathbf q_\mathrm{end}-\mathbf q_\mathrm{start}
+   \right),
+   \qquad 0\leq f\leq1,
+
+MDtrace retains the fractional values satisfying that integer condition.
+Larger supercells provide denser exact Q sampling. Arbitrary incommensurate
+points can introduce aliasing and should not be used for quantitative SED.
+
+Calculation logic
+-----------------
+
+``Phonon.py`` follows this sequence:
+
+1. Read the basis mapping and prepare basis IDs, masses, type mappings, and Q
+   points once.
+2. Select serial NumPy, persistent multiprocessing, or single-GPU CuPy.
+3. Read one requested NetCDF trajectory block.
+4. Average the reference-atom positions to obtain one equilibrium unit-cell
+   reference vector for each repeated cell in the block.
+5. Construct :math:`\exp(i\mathbf q\cdot\mathbf R_l)`.
+6. Use ``tensordot`` to contract the unit-cell axis while keeping time, Q
+   point, and Cartesian direction.
+7. Apply the FFT along time and multiply :math:`|\mathrm{FFT}|^2` by mass.
+8. Retain type/x/y/z components or sum the total SED.
+9. Apply :math:`\Delta t^2/(4\pi\tau_0N_T)` and accumulate the block online.
+10. Average blocks, fold positive and negative frequencies, and write the
+    positive-frequency output.
+
+The CPU path creates one process pool for the complete SED calculation. Each
+trajectory block is copied once into shared memory, and workers receive only
+small Q-point ranges. The CuPy path uploads one block, checks estimated device
+memory before the first block, and frees its memory pools after completion.
 
 Partial SED
 -----------
 
-The partial SED implementation decomposes the total mdtrace intensity by atom
-species and Cartesian direction. Let :math:`\mathcal{B}_s` be the set of basis
-atoms that belong to species or type :math:`s`. The contribution from species
-:math:`s` and direction :math:`\alpha` is
+With :math:`\mathcal B_s` denoting basis atoms of species :math:`s`,
 
 .. math::
 
-   \Phi'_{s,\alpha}(\mathbf{q},\omega)
+   \Phi'_{s,\alpha}(\mathbf q,\omega)
    =
-   \frac{1}{4\pi\tau_0 N_T}
-   \sum_{b\in\mathcal{B}_s}
-   m_b
+   \frac{1}{4\pi\tau_0N_T}
+   \sum_{b\in\mathcal B_s}m_b
    \left|
    \int_0^{\tau_0}
-   \sum_{l=1}^{N_T}
-   \dot{u}_{\alpha}(l,b,t)
-   \exp\left(i\mathbf{q}\cdot\mathbf{r}_0(l)-i\omega t\right)dt
-   \right|^2 .
+   \sum_l
+   \dot u_\alpha(l,b,t)
+   e^{i\mathbf q\cdot\mathbf r_0(l)-i\omega t}dt
+   \right|^2.
 
-The total SED is recovered by summing over all species and directions:
+The total is recovered by summing over species and Cartesian directions.
 
-.. math::
-
-   \Phi'_{\mathrm{total}}(\mathbf{q},\omega)
-   =
-   \sum_s \sum_{\alpha=x,y,z}
-   \Phi'_{s,\alpha}(\mathbf{q},\omega).
-
-In the input file, use ``output_partial = 1`` during the SED-computing mode.
-mdtrace writes one partial SED file for each atom type and direction. In plotting
-mode, use ``plot_partial_SED = 3`` to plot the sum of ``x+y+z`` for type 3, or
-``plot_partial_SED = 3 x`` to plot only the x-direction contribution of type 3.
-
-Partial SED is not the same as local or spatial-bin SED. The standard SED method
-requires a mapping between the supercell and the primitive cell to define
-reciprocal-space wave vectors. mdtrace therefore does not currently support
-arbitrary local SED extraction for user-defined spatial bins.
-
-Allowed Wave Vectors
+Linewidth convention
 --------------------
 
-In periodic systems, only wave vectors commensurate with the MD supercell are
-allowed. mdtrace follows the same commensurate-supercell q-point idea used in
-dynasor 2 [Dynasor2025]_, and the implementation in ``mdtrace/construct_BZ.py``
-credits dynasor's lattice helper as the reference for this path construction.
-For a one-dimensional direction, the Born-von Karman boundary condition gives
+The current fit model is
 
 .. math::
 
-   q_{\alpha}
+   L(f)
    =
-   \frac{2\pi}{N_{\alpha}a_{\alpha}} n_{\alpha},
+   \frac{I}{
+   1+\left[(f-f_c)/h\right]^2
+   },
 
-where :math:`a_{\alpha}` is the lattice constant, :math:`N_{\alpha}` is the
-number of unit cells, and :math:`n_{\alpha}` is an integer.
-
-For general three-dimensional cells, mdtrace writes the supercell as
-
-.. math::
-
-   \mathbf{S} = \mathbf{P}\mathbf{p},
-
-where :math:`\mathbf{p}` contains the primitive lattice vectors as rows,
-:math:`\mathbf{S}` contains the supercell lattice vectors as rows, and
-:math:`\mathbf{P}` is an integer repetition matrix.
-
-A reduced wave vector :math:`\mathbf{q}_{\mathrm{red}}` is commensurate with
-the supercell if
-
-.. math::
-
-   \mathbf{q}_{\mathrm{red}}\mathbf{P}^{T} \in \mathbb{Z}^{3}.
-
-For a path between two high-symmetry points, mdtrace searches the line
-
-.. math::
-
-   \mathbf{q}(f)
-   =
-   \mathbf{q}_{\mathrm{start}}
-   +
-   f\left(\mathbf{q}_{\mathrm{end}}-\mathbf{q}_{\mathrm{start}}\right),
-   \qquad 0 \le f \le 1,
-
-and keeps only values of :math:`f` satisfying
-
-.. math::
-
-   \mathbf{q}(f)\mathbf{P}^{T} \in \mathbb{Z}^{3}.
-
-The resulting reduced q-points are mapped to Cartesian reciprocal space by
-
-.. math::
-
-   \mathbf{q}_{\mathrm{cart}}(f)
-   =
-   \mathbf{q}(f)\left[2\pi(\mathbf{p}^{-1})^{T}\right].
-
-Larger supercells provide denser commensurate q-point sampling, but also
-increase trajectory size, memory use, and SED compute time.
-
-For a diagonal repetition matrix
-:math:`\mathbf{P}=\mathrm{diag}(N_x,N_y,N_z)`, a Gamma-to-boundary path along
-one reduced reciprocal axis contains :math:`\lfloor N_i/2 \rfloor + 1`
-commensurate q-points, or :math:`N_i/2+1` when :math:`N_i` is even. For
-non-diagonal repetition matrices, the count must be obtained from the integer
-condition :math:`\mathbf{q}(f)\mathbf{P}^{T}\in\mathbb{Z}^{3}` for the selected
-path segment.
-
-Lorentzian Fitting and Lifetime
--------------------------------
-
-The linewidth of an SED peak can be fitted with a Lorentzian function:
-
-.. math::
-
-   \Phi(\mathbf{q},\omega), \Phi'(\mathbf{q},\omega)
-   =
-   \frac{I}{1+\left[(\omega-\omega_c)/\gamma\right]^2}.
-
-Here :math:`I` is the peak magnitude, :math:`\omega_c` is the center frequency,
-and :math:`\gamma` is the half-width at half-maximum (HWHM). The paper defines
-the lifetime as
-
-.. math::
-
-   \tau(\mathbf{q},\omega)
-   =
-   \frac{1}{2\gamma}.
-
-In the current code output, frequencies are handled in THz for plotting and
-fitting, and the lifetime is written in ps using the relation implemented in
-``mdtrace/FileIO.py``:
-
-.. math::
-
-   \tau_{\mathrm{ps}}
-   =
-   \frac{1}{2\pi\gamma_{\mathrm{THz}}}.
-
-Use the single-q-point fitting workflow first to tune ``peak_height``,
-``peak_prominence``, ``initial_guess_hwhm``, ``peak_max_hwhm``, and
-``lorentz_fit_cutoff`` before fitting all q-points.
-
-LO-TO Splitting
----------------
-
-LO-TO splitting in polar materials comes from long-range Coulomb interactions
-that create a macroscopic electric field near the Gamma point. mdtrace is a
-post-processing tool: it does not add a non-analytical correction (NAC) to the
-trajectory after the MD simulation.
-
-Therefore:
-
-- If the MD trajectory is generated with a model that does not include the
-  long-range electrostatic physics, mdtrace will not create LO-TO splitting by
-  itself.
-- If the trajectory is generated with a model that includes the relevant
-  long-range Coulomb effects, mdtrace can resolve the splitting present in that
-  trajectory.
-- When comparing against lattice dynamics, apply NAC in the lattice-dynamics
-  reference calculation when appropriate, for example through phonopy with Born
-  effective charges and dielectric constants.
-
-Small differences between finite-temperature SED and lattice-dynamics reference
-branches can come from anharmonicity, the exchange-correlation level used to
-generate Born charges, or differences between the MD potential and the reference
-lattice-dynamics model. For qNEP-style long-range electrostatic models and
-their use in polar materials, see the qNEP article [qNEP2026]_.
+where :math:`h` is HWHM in THz and FWHM is :math:`2h`. The current lifetime
+file retains MDtrace's existing HWHM conversion convention. Users needing a
+quantitative energy-relaxation lifetime should verify whether their reference
+uses angular-frequency HWHM, angular-frequency FWHM, ordinary-frequency HWHM,
+or ordinary-frequency FWHM. Pure dephasing can also broaden a line without the
+same energy-relaxation rate.
 
 References
 ----------
@@ -312,12 +266,7 @@ References
    from the spectral energy density," *Physical Review B* **81**, 081411
    (2010). https://doi.org/10.1103/PhysRevB.81.081411
 
-.. [Dynasor2025] E. Berger, E. Fransson, F. Eriksson, E. Lindgren,
-   G. Wahnström, T. H. Rod, and P. Erhart, "Dynasor 2: From simulation to
+.. [Dynasor2025] E. Berger *et al.*, "Dynasor 2: From simulation to
    experiment through correlation functions," *Computer Physics
    Communications* **316**, 109759 (2025).
    https://doi.org/10.1016/j.cpc.2025.109759
-
-.. [qNEP2026] X. Wu, T. Liang, W. Wang, J. Ma, Z. Fan, J. Xu, S. Volz,
-   and M. Nomura, "Data-driven flipping engineering for high thermal
-   anisotropy." https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5864374

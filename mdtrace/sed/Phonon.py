@@ -13,222 +13,734 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ***************************
-        liangting.zj@gmail.com --- Refer from Ty Sterling's script
-************************ 2021/4/26 00:03:21 *********************
-'''
-
+import math
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import contextmanager
+from dataclasses import dataclass
+from multiprocessing import shared_memory
+
 import numpy as np
 from scipy.fftpack import fft, fftfreq
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
-import h5py
+
+from mdtrace.io.netcdf import NetCDFReader
+from mdtrace.structure.atoms import atomic_masses
+
+
+@dataclass(frozen=True)
+class _SEDKernelConfig:
+    """Store the small, static arrays needed by every SED worker."""
+
+    basis_ids: tuple
+    masses: np.ndarray
+    basis_to_type: tuple
+    qpoints: np.ndarray
+    num_types: int
+    output_partial: bool
+    amu_2_kg: float
+
+
+_CPU_WORKER_CONFIG = None
+
+
+def _initialize_cpu_worker(config):
+    """Install static topology metadata once in each persistent CPU worker."""
+
+    global _CPU_WORKER_CONFIG
+    _CPU_WORKER_CONFIG = config
+
+
+def _calculate_q_batch(
+    vels,
+    cell_vecs,
+    qpoints,
+    basis_ids_by_basis,
+    config,
+    xp=np,
+    fft_function=fft,
+):
+    """Calculate a Q-point batch with either NumPy or CuPy operations."""
+
+    # One matrix multiplication creates phase factors for the whole Q batch.
+    phases = xp.exp(1.0j * (cell_vecs @ qpoints.T))
+    num_frames = int(vels.shape[0])
+    num_qpoints = int(qpoints.shape[0])
+
+    if config.output_partial:
+        result = xp.zeros(
+            (num_frames, num_qpoints, config.num_types, 3),
+            dtype=xp.float64,
+        )
+    else:
+        result = xp.zeros((num_frames, num_qpoints), dtype=xp.float64)
+
+    for b_idx, basis_ids in enumerate(basis_ids_by_basis):
+        # Contract only the unit-cell axis. Time, xyz, and Q remain separate.
+        projected_vels = xp.tensordot(
+            vels[:, basis_ids, :],
+            phases,
+            axes=([1], [0]),
+        )
+        spectra = (
+            xp.abs(fft_function(projected_vels, axis=0)) ** 2
+            * config.masses[b_idx]
+            * config.amu_2_kg
+        )
+
+        if config.output_partial:
+            type_index = config.basis_to_type[b_idx]
+            result[:, :, type_index, :] += spectra.transpose(0, 2, 1)
+        else:
+            result += spectra.sum(axis=1)
+
+    return result
+
+
+def _compute_shared_q_batch(
+    shared_name,
+    shape,
+    dtype_string,
+    cell_vecs,
+    q_start,
+    q_stop,
+):
+    """Attach to one shared velocity block and calculate one Q range."""
+
+    if _CPU_WORKER_CONFIG is None:
+        raise RuntimeError("SED worker was not initialized")
+
+    segment = shared_memory.SharedMemory(name=shared_name)
+    try:
+        # The worker creates only an ndarray view; it does not copy vels.
+        vels = np.ndarray(
+            shape,
+            dtype=np.dtype(dtype_string),
+            buffer=segment.buf,
+        )
+        vels.setflags(write=False)
+        result = _calculate_q_batch(
+            vels=vels,
+            cell_vecs=cell_vecs,
+            qpoints=_CPU_WORKER_CONFIG.qpoints[q_start:q_stop],
+            basis_ids_by_basis=_CPU_WORKER_CONFIG.basis_ids,
+            config=_CPU_WORKER_CONFIG,
+        )
+        return q_start, q_stop, result
+    finally:
+        segment.close()
+
+
+@contextmanager
+def _share_numpy_array(values):
+    """Copy one contiguous array into shared memory and always clean it up."""
+
+    contiguous = np.ascontiguousarray(values)
+    segment = shared_memory.SharedMemory(create=True, size=contiguous.nbytes)
+    shared_values = np.ndarray(
+        contiguous.shape,
+        dtype=contiguous.dtype,
+        buffer=segment.buf,
+    )
+    np.copyto(shared_values, contiguous)
+
+    try:
+        yield segment.name, contiguous.shape, contiguous.dtype.str
+    finally:
+        segment.close()
+        segment.unlink()
+
+
+def _qpoint_batches(num_qpoints, num_workers):
+    """Split typical 20-40 Q points into small, balanced worker batches."""
+
+    if num_qpoints < 1:
+        return []
+    if num_qpoints == 1:
+        return [(0, 1)]
+
+    # Choose enough batches to cap each at five Q points, but not so many that
+    # a batch contains only one. Evenly distributing the remainder avoids a
+    # short final batch.
+    minimum_batches = math.ceil(num_qpoints / 5)
+    maximum_batches = num_qpoints // 2
+    num_batches = max(
+        minimum_batches,
+        min(num_workers, maximum_batches),
+    )
+    base_size, extra = divmod(num_qpoints, num_batches)
+
+    batches = []
+    start = 0
+    for batch_index in range(num_batches):
+        batch_size = base_size + (batch_index < extra)
+        stop = start + batch_size
+        batches.append((start, stop))
+        start = stop
+    return batches
+
+
+def _load_cupy():
+    """Import CuPy lazily and verify that a CUDA device is usable."""
+
+    try:
+        import cupy as cp
+    except ImportError as error:
+        raise ImportError(
+            "backend = cupy requires a CuPy package matching the installed "
+            "CUDA version"
+        ) from error
+
+    try:
+        device_count = cp.cuda.runtime.getDeviceCount()
+    except Exception as error:
+        raise RuntimeError(
+            "CuPy is installed, but no usable CUDA device was found"
+        ) from error
+    if device_count < 1:
+        raise RuntimeError("CuPy found no usable CUDA device")
+    return cp
+
+
+def _element_symbol_from_mass(mass, tolerance=5.0e-2):
+    """Infer an element symbol from a standard mass without guessing."""
+
+    candidates = [
+        (abs(mass - standard_mass), symbol)
+        for symbol, standard_mass in atomic_masses.items()
+        if standard_mass is not None
+        and abs(mass - standard_mass) <= tolerance
+    ]
+    if not candidates:
+        return "unknown"
+    return min(candidates)[1]
+
+
+def _estimate_kernel_working_bytes(vels, config, max_q_batch):
+    """Estimate the largest temporary arrays used by one SED kernel."""
+
+    num_frames = vels.shape[0]
+    max_basis_atoms = max(len(ids) for ids in config.basis_ids)
+    basis_velocities = (
+        num_frames * max_basis_atoms * 3 * vels.dtype.itemsize
+    )
+    phases = max_basis_atoms * max_q_batch * np.dtype(np.complex128).itemsize
+    spectral_values = num_frames * 3 * max_q_batch
+    transforms = spectral_values * (
+        2 * np.dtype(np.complex128).itemsize
+        + np.dtype(np.float64).itemsize
+    )
+    result_components = config.num_types * 3 if config.output_partial else 1
+    result = (
+        num_frames
+        * max_q_batch
+        * result_components
+        * np.dtype(np.float64).itemsize
+    )
+    return basis_velocities + phases + transforms + result
+
 
 class spectral_energy_density:
+    """Calculate spectral energy density with a CPU or CuPy backend."""
+
     def __init__(self, params):
-        self.num_frame = params.total_num_steps // params.output_data_stride
-        self.num_frame_per_split = self.num_frame // params.num_splits
+        """Validate the trajectory and prepare the common frequency grid."""
 
-        print('\nThe number of frames used to calculate SED is {0}.'.format(self.num_frame))
-        print('\nThe {0} frame trajectories were divided into {1} blocks for averaging.'.format(self.num_frame, params.num_splits))
+        self.num_frame = (
+            params.total_num_steps // params.output_data_stride
+        )
+        self.num_frames_per_block = self.num_frame // params.num_blocks
 
-        # Frequency velocities are printed (Default)
-        # Its reciprocal divided by 2 is roughly the maximum frequency attainable.
-        self.dt = params.time_step * params.output_data_stride / 1e15  # from fs to second
+        with NetCDFReader(params.trajectory_path) as trajectory:
+            trajectory.require("positions", "velocities")
+            if trajectory.info.n_atoms != params.num_atoms:
+                raise ValueError(
+                    f"Trajectory has {trajectory.info.n_atoms} atoms, "
+                    f"but num_atoms = {params.num_atoms}."
+                )
+            if trajectory.info.n_frames < self.num_frame:
+                raise ValueError(
+                    f"Trajectory has {trajectory.info.n_frames} frames, "
+                    f"but {self.num_frame} are requested."
+                )
 
-        # total simulation time ( / 1e15 because of from fs to s)
-        self.t_o = params.time_step * params.total_num_steps / params.num_splits / 1e15  # total simulation time in per splits
+        print(
+            "\nThe number of frames used to calculate SED is "
+            f"{self.num_frame}."
+        )
+        print(
+            f"\nThe {self.num_frame} frame trajectories were divided into "
+            f"{params.num_blocks} blocks for averaging."
+        )
 
-        # unit for mass
+        # Convert the saved-frame interval from fs to seconds.
+        self.dt = params.time_step * params.output_data_stride / 1e15
+
+        # Total simulated time represented by one averaging block.
+        self.t_o = (
+            params.time_step
+            * params.total_num_steps
+            / params.num_blocks
+            / 1e15
+        )
         self.amu_2_kg = 1.66054e-27
 
-        # for velocity conversion to generate correct SED unit (J*s)
-        if params.file_format == 'lammps' and params.lammps_unit == 'metal':  ## convert velocity from A/ps to m/s (default is metal)
-            self.scaling_velocity = 100
-            print('\n****** Using velocity unit of A/ps in lammps (metal), the unit for SED is convert to J*s *****')
+        print(
+            "\n****** Velocity unit normalized to m/s; "
+            "SED unit is J*s ******"
+        )
 
-        elif params.file_format == 'lammps' and params.lammps_unit == 'real':  ## convert velocity from A/fs to m/s
-            self.scaling_velocity = 100000
-            print('\n****** Using velocity unit of A/fs in lammps (real), the unit for SED is convert to J*s *****')
-
-        elif params.file_format == 'gpumd':  ## convert velocity from A/fs to m/s (for gpumd)
-            self.scaling_velocity = 100000
-            print('\n****** Using velocity unit of A/fs in GPUMD, the unit for SED is convert to J*s ******')
-
-        # Obtaining frequencies for fourier transform
-        '''
-        numpy.fft.fftfreq(n, d=1.0)
-        Return the Discrete Fourier Transform sample frequencies.
-        f = [0, 1, ...,   n/2-1,     -n/2, ..., -1] / (d*n)   if n is even
-        f = [0, 1, ..., (n-1)/2, -(n-1)/2, ..., -1] / (d*n)   if n is odd
-        '''
-        self.freq_fft = fftfreq(self.num_frame_per_split, self.dt) / 1e12  # from Hz to THz
+        # scipy.fftpack.fftfreq returns Hz; expose the frequency axis in THz.
+        self.freq_fft = (
+            fftfreq(self.num_frames_per_block, self.dt) / 1e12
+        )
 
     def compute_sed(self, params, lattice_info):
+        """Prepare static metadata and run every block through one backend."""
 
-        # For multi-threading
-        self.use_parallel = params.use_parallel
-        self.max_cores = params.max_cores
-        if self.use_parallel and self.max_cores is None:
-            self.max_cores = os.cpu_count()
-
-        if self.use_parallel and self.max_cores > 1:
-            print('\n****************** Using {0} cores parallelism for computing SED *****************'.format(
-                self.max_cores))
-
+        self.backend = params.backend
+        max_cores = params.max_cores
         start_time = time.time()
 
-        # note that velocites are in A/ps
+        # These topology values do not change between blocks or Q points.
         self.num_unit_cells = lattice_info.unitcell_index.max()
-        self.num_basis = lattice_info.basis_index.max()
-        self.num_loops = params.num_splits
+        num_basis = lattice_info.basis_index.max()
+        self.num_blocks = params.num_blocks
 
         unique_masses = np.unique(lattice_info.masses)
         self.num_types = len(unique_masses)
-        self.basis_to_type = [np.where(unique_masses == m)[0][0] for m in lattice_info.masses]
-        self.output_partial = getattr(params, 'output_partial', 0)
+        basis_masses = np.asarray(
+            lattice_info.masses[:num_basis],
+            dtype=float,
+        )
+        basis_to_type = [
+            np.where(unique_masses == mass)[0][0]
+            for mass in basis_masses
+        ]
+        self.output_partial = getattr(params, "output_partial", 0)
 
-        # do the calculation without eigenvectors
-        #self.sed = np.zeros((params.num_splits, self.num_frame_per_split, lattice_info.num_qpoints))
+        # Basis membership is topology-only, so search the atoms only once.
+        basis_ids = tuple(
+            np.flatnonzero(lattice_info.basis_index == (b_idx + 1))
+            for b_idx in range(num_basis)
+        )
+        for b_idx, atom_ids in enumerate(basis_ids):
+            if atom_ids.size != self.num_unit_cells:
+                raise ValueError(
+                    f"Basis {b_idx + 1} contains {atom_ids.size} atoms; "
+                    f"expected {self.num_unit_cells} unit cells."
+                )
+
+        kernel_config = _SEDKernelConfig(
+            basis_ids=basis_ids,
+            masses=basis_masses,
+            basis_to_type=tuple(basis_to_type),
+            qpoints=np.asarray(lattice_info.qpoints, dtype=float),
+            num_types=self.num_types,
+            output_partial=bool(self.output_partial),
+            amu_2_kg=self.amu_2_kg,
+        )
+        self.reduced_qpoints = np.asarray(
+            lattice_info.reduced_qpoints,
+            dtype=float,
+        )
+        self._allocate_sed_accumulator(lattice_info, unique_masses)
+
+        executor = None
+        num_workers = 1
+        if self.backend == "cupy":
+            # CUDA is initialized only when the user selects this backend.
+            self._cupy = _load_cupy()
+            self._gpu_basis_ids = tuple(
+                self._cupy.asarray(atom_ids)
+                for atom_ids in kernel_config.basis_ids
+            )
+            self._gpu_qpoints = self._cupy.asarray(
+                kernel_config.qpoints
+            )
+            print(
+                "\n****************** Using CuPy GPU backend for "
+                "computing SED *****************"
+            )
+        elif max_cores > 1:
+            # The pool lives across all blocks, and each worker retains the
+            # small static config supplied by its initializer.
+            # More than one worker per two Q points would create one-Q tasks,
+            # so leave excess CPU cores idle for this small-Q workload.
+            num_workers = min(
+                max_cores,
+                max(1, lattice_info.num_qpoints // 2),
+            )
+            executor = ProcessPoolExecutor(
+                max_workers=num_workers,
+                initializer=_initialize_cpu_worker,
+                initargs=(kernel_config,),
+            )
+            print(
+                f"\n****************** Using {num_workers} CPU processes "
+                "for computing SED *****************"
+            )
+
+        try:
+            self._loop_over_blocks(
+                params,
+                lattice_info,
+                kernel_config,
+                executor,
+                num_workers,
+            )
+        finally:
+            # One shutdown replaces repeated pool startup/shutdown per block.
+            if executor is not None:
+                executor.shutdown()
+            if self.backend == "cupy":
+                # Static GPU arrays are no longer needed after the last block.
+                del self._gpu_basis_ids, self._gpu_qpoints
+                self._cupy.get_default_memory_pool().free_all_blocks()
+                self._cupy.get_default_pinned_memory_pool().free_all_blocks()
+                print("\n  🚀🚀 CuPy cached GPU memory has been released.")
+
+        self._average_blocks_and_frequencies()
+
+        elapsed = time.time() - start_time
+        print(
+            "\n************ Time for SED computing taken: "
+            f"{elapsed:.2f} seconds. ************"
+        )
+
+    def _allocate_sed_accumulator(self, lattice_info, unique_masses):
+        """Allocate one block-shaped accumulator for online averaging."""
+
         if self.output_partial:
-            # Dimensions: [Block average, Frequency, Q-point, Atom type, xyz direction]
-            print('\n******* Output partial SED for each atom type and different directions *******')
-            print("  🚀🚀  Type index -> mass mapping (mass in amu; use for plotting labels):")
-            for i, m in enumerate(unique_masses):
-                print(f"            type {i+1} = {m} amu")
+            print(
+                "\n******* Output partial SED for each atom type and "
+                "different directions *******"
+            )
+            print(
+                "  🚀🚀 Type index -> element and mass mapping "
+                "(mass in amu; use for plotting labels):"
+            )
+            for type_index, mass in enumerate(unique_masses):
+                symbol = _element_symbol_from_mass(mass)
+                print(
+                    f"            type {type_index + 1} = "
+                    f"{symbol} ({mass} amu)"
+                )
 
-            self.sed = np.zeros((params.num_splits, self.num_frame_per_split, 
-                                 lattice_info.num_qpoints, self.num_types, 3))
+            self._sed_sum = np.zeros(
+                (
+                    self.num_frames_per_block,
+                    lattice_info.num_qpoints,
+                    self.num_types,
+                    3,
+                )
+            )
         else:
-            self.sed = np.zeros((params.num_splits, self.num_frame_per_split, lattice_info.num_qpoints))
+            self._sed_sum = np.zeros(
+                (
+                    self.num_frames_per_block,
+                    lattice_info.num_qpoints,
+                )
+            )
 
-        self._loop_over_splits(params, lattice_info)
+    def _loop_over_blocks(
+        self,
+        params,
+        lattice_info,
+        kernel_config,
+        executor,
+        num_workers,
+    ):
+        """Read each trajectory block once and send it to the chosen backend."""
 
-        # Average over all the splits
-        self.sed_avg = self.sed.sum(axis=0) / self.num_loops
+        # The discrete FFT approximates the time integral as dt * sum(...).
+        scaling_const = self.dt**2 / (
+            4 * np.pi * self.t_o * self.num_unit_cells
+        )
+        for block_index in range(self.num_blocks):
+            print(
+                "\n**************** Now calculate on averaging blocks "
+                f"{block_index + 1}/{self.num_blocks} ... ****************\n"
+            )
+            self.block_index = block_index
+            self._allocate_qdot(lattice_info.num_qpoints)
 
-        # Average the negative and positive frequency parts
+            # NetCDF supplies only this block. CPU workers share the resulting
+            # vels array; the GPU path uploads that array only once.
+            vels, cell_vecs = self._get_simulation_data(
+                params,
+                lattice_info,
+            )
+            if block_index == 0:
+                self._print_cpu_memory_estimate(
+                    vels,
+                    cell_vecs,
+                    kernel_config,
+                    executor,
+                    num_workers,
+                )
+            self._loop_over_qpoints(
+                vels,
+                cell_vecs,
+                kernel_config,
+                executor,
+                num_workers,
+            )
+
+            # qdot is no longer needed after this block, so scale it in place
+            # and accumulate without storing every block in memory.
+            self.qdot *= scaling_const
+            self._sed_sum += self.qdot
+            del self.qdot
+
+    def _print_cpu_memory_estimate(
+        self,
+        vels,
+        cell_vecs,
+        kernel_config,
+        executor,
+        num_workers,
+    ):
+        """Estimate peak CPU array memory after the first block is known."""
+
+        num_qpoints = kernel_config.qpoints.shape[0]
+        batches = _qpoint_batches(num_qpoints, num_workers)
+        max_q_batch = max(stop - start for start, stop in batches)
+        worker_peak = _estimate_kernel_working_bytes(
+            vels,
+            kernel_config,
+            max_q_batch,
+        )
+
+        persistent_arrays = (
+            self._sed_sum.nbytes
+            + self.qdot.nbytes
+            + vels.nbytes
+            + cell_vecs.nbytes
+        )
+        shared_velocities = vels.nbytes if executor is not None else 0
+        if self.backend == "cupy":
+            active_workers = 0
+        else:
+            active_workers = num_workers if executor is not None else 1
+        estimated_bytes = (
+            persistent_arrays
+            + shared_velocities
+            + active_workers * worker_peak
+        )
+        print(
+            "\n  🚀🚀 Estimated peak CPU array memory: "
+            f"{estimated_bytes / 1e6:.2f} MB "
+            "(excluding Python process overhead)."
+        )
+
+    def _allocate_qdot(self, num_qpoints):
+        """Allocate one block accumulator with total or xyz-resolved shape."""
+
+        if self.output_partial:
+            self.qdot = np.zeros(
+                (
+                    self.num_frames_per_block,
+                    num_qpoints,
+                    self.num_types,
+                    3,
+                )
+            )
+        else:
+            self.qdot = np.zeros(
+                (self.num_frames_per_block, num_qpoints)
+            )
+
+    def _loop_over_qpoints(
+        self,
+        vels,
+        cell_vecs,
+        kernel_config,
+        executor,
+        num_workers,
+    ):
+        """Dispatch a velocity block without changing its numerical meaning."""
+
+        if self.backend == "cupy":
+            self._compute_qpoints_gpu(
+                vels,
+                cell_vecs,
+                kernel_config,
+            )
+        elif executor is not None:
+            self._compute_qpoints_shared(
+                executor,
+                vels,
+                cell_vecs,
+                num_workers,
+            )
+        else:
+            self._compute_qpoints_serial(
+                vels,
+                cell_vecs,
+                kernel_config,
+            )
+
+    def _compute_qpoints_serial(self, vels, cell_vecs, kernel_config):
+        """Run the batched NumPy kernel without multiprocessing."""
+
+        num_qpoints = kernel_config.qpoints.shape[0]
+        for q_start, q_stop in _qpoint_batches(num_qpoints, 1):
+            self._print_qpoints(q_start, q_stop, num_qpoints)
+            self.qdot[:, q_start:q_stop, ...] = _calculate_q_batch(
+                vels=vels,
+                cell_vecs=cell_vecs,
+                qpoints=kernel_config.qpoints[q_start:q_stop],
+                basis_ids_by_basis=kernel_config.basis_ids,
+                config=kernel_config,
+            )
+
+    def _compute_qpoints_shared(
+        self,
+        executor,
+        vels,
+        cell_vecs,
+        num_workers,
+    ):
+        """Share one velocity copy and let workers process small Q ranges."""
+
+        num_qpoints = self.qdot.shape[1]
+        batches = _qpoint_batches(num_qpoints, num_workers)
+
+        # Jobs carry only a shared-memory description and Q indices, never the
+        # full velocity array.
+        with _share_numpy_array(vels) as shared:
+            shared_name, shape, dtype_string = shared
+            futures = []
+            for q_start, q_stop in batches:
+                self._print_qpoints(q_start, q_stop, num_qpoints)
+                futures.append(
+                    executor.submit(
+                        _compute_shared_q_batch,
+                        shared_name,
+                        shape,
+                        dtype_string,
+                        cell_vecs,
+                        q_start,
+                        q_stop,
+                    )
+                )
+
+            for future in as_completed(futures):
+                q_start, q_stop, result = future.result()
+                self.qdot[:, q_start:q_stop, ...] = result
+
+    def _compute_qpoints_gpu(self, vels, cell_vecs, kernel_config):
+        """Upload one block once and calculate small Q batches on the GPU."""
+
+        cp = self._cupy
+        if self.block_index == 0:
+            self._check_gpu_memory(vels, cell_vecs, kernel_config)
+        gpu_vels = cp.asarray(vels)
+        gpu_cell_vecs = cp.asarray(cell_vecs)
+        num_qpoints = kernel_config.qpoints.shape[0]
+
+        # Q batching limits GPU temporaries. The xyz dimension remains intact.
+        for q_start, q_stop in _qpoint_batches(num_qpoints, 1):
+            self._print_qpoints(q_start, q_stop, num_qpoints)
+            gpu_result = _calculate_q_batch(
+                vels=gpu_vels,
+                cell_vecs=gpu_cell_vecs,
+                qpoints=self._gpu_qpoints[q_start:q_stop],
+                basis_ids_by_basis=self._gpu_basis_ids,
+                config=kernel_config,
+                xp=cp,
+                fft_function=cp.fft.fft,
+            )
+            self.qdot[:, q_start:q_stop, ...] = cp.asnumpy(gpu_result)
+
+        # Release block references so CuPy can reuse these allocations.
+        del gpu_vels, gpu_cell_vecs
+
+    def _check_gpu_memory(self, vels, cell_vecs, kernel_config):
+        """Estimate the first-block GPU peak and fail before an obvious OOM."""
+
+        cp = self._cupy
+        batches = _qpoint_batches(kernel_config.qpoints.shape[0], 1)
+        max_q_batch = max(stop - start for start, stop in batches)
+        working_bytes = _estimate_kernel_working_bytes(
+            vels,
+            kernel_config,
+            max_q_batch,
+        )
+
+        # Include a small margin for FFT workspace and allocator alignment.
+        estimated_bytes = int(
+            1.2
+            * (
+                vels.nbytes
+                + cell_vecs.nbytes
+                + working_bytes
+            )
+        )
+        free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
+        print(
+            "\n  🚀🚀 Estimated peak GPU memory: "
+            f"{estimated_bytes / 1e6:.2f} MB; "
+            f"currently available: {free_bytes / 1e6:.2f} MB "
+            f"of {total_bytes / 1e6:.2f} MB."
+        )
+        if estimated_bytes > free_bytes:
+            raise MemoryError(
+                "Estimated SED GPU memory exceeds currently available "
+                "memory. Increase num_blocks or use backend = numpy."
+            )
+
+    def _print_qpoints(self, q_start, q_stop, num_qpoints):
+        """Keep the original one-line output style for every Q point."""
+
+        for q_index in range(q_start, q_stop):
+            qpoint = self.reduced_qpoints[q_index]
+            print(
+                "\tNow calculating q-point "
+                f"{q_index + 1}/{num_qpoints}:\t"
+                f"q = ({qpoint[0]:.4f}, {qpoint[1]:.4f}, "
+                f"{qpoint[2]:.4f})"
+            )
+
+    def _average_blocks_and_frequencies(self):
+        """Average blocks, pair positive/negative frequencies, and crop."""
+
+        # Reuse the accumulator allocation instead of creating another array.
+        self._sed_sum /= self.num_blocks
+        self.sed_avg = self._sed_sum
+        del self._sed_sum
+
         n_half = len(self.freq_fft) // 2
         neg_part_flipped = self.sed_avg[:n_half:-1, ...]
-        L = neg_part_flipped.shape[0]
+        paired_length = neg_part_flipped.shape[0]
+        positive = self.sed_avg[1 : 1 + paired_length, ...]
+        # Fold both sides into an energy-preserving one-sided spectrum.
+        # DC is kept once; paired nonzero frequencies contain +f and -f.
+        self.sed_avg[1 : 1 + paired_length, ...] = (
+            positive + neg_part_flipped
+        )
 
-        self.sed_avg[1:1+L, ...] = (self.sed_avg[1:1+L, ...] + neg_part_flipped) / 2.0
-        # Keep only the half spectrum (exclude the Nyquist point)
+        # Preserve the previous convention: exclude the Nyquist point.
         self.sed_avg = self.sed_avg[:n_half, ...]
         self.freq_fft = self.freq_fft[:n_half]
 
-        end_time = time.time()
-        print(f"\n************ Time for SED computing taken: {end_time - start_time:.2f} seconds. ************")
-
-    def _loop_over_splits(self, params, lattice_info, if_get_memory=True):
-
-        if if_get_memory:
-            import psutil
-            process = psutil.Process()
-            initial_memory = process.memory_info().rss
-            single_thread_memory_usage = initial_memory / 1e6
-            estimated_memory_usage = single_thread_memory_usage * (self.max_cores if self.use_parallel else 1)
-            print('\n**************** Estimated computing memory usage: {:.2f} MB. ***************'.format(estimated_memory_usage))
-
-        for i in range(self.num_loops):
-            print('\n**************** Now calculate on averaging blocks {}/{} ... ****************\n'.format(i + 1,
-                                                                                                        self.num_loops))
-            self.loop_index = i
-            if self.output_partial:
-                # [Frequency, Q-point, Atom type, xyz direction]
-                self.qdot = np.zeros((self.num_frame_per_split, lattice_info.num_qpoints, self.num_types, 3))
-            else:
-                self.qdot = np.zeros((self.num_frame_per_split, lattice_info.num_qpoints))
-
-            vels, cell_vecs = self._get_simulation_data(params, lattice_info)
-            self._loop_over_qpoints(lattice_info, vels, cell_vecs)
-
-            self.scaling_const = 1 / (4 * np.pi * self.t_o * self.num_unit_cells)
-            # self.qdot in kg*m^2, then /self.t_o, so convert to kg*m^2/s, and finally convert to J * s (J=m^2·kg·s-2)
-            self.sed[i, ...] = self.qdot * self.scaling_const  # scale
-
-    def _loop_over_qpoints(self, lattice_info, vels, cell_vecs):
-
-        q_indices = list(range(lattice_info.num_qpoints))
-
-        if self.use_parallel and self.max_cores > 1:
-            args_list = [(q, lattice_info, vels, cell_vecs) for q in q_indices]
-            with ProcessPoolExecutor(max_workers=self.max_cores) as executor:
-                futures = [executor.submit(self.process_q_point, *args) for args in args_list]
-                for future in as_completed(futures):
-                    q_index, qdot_q = future.result()
-                    self.qdot[:, q_index, ...] = qdot_q
-        else:                                             # use one core for windows system
-            for q in q_indices:
-                q_index, qdot_q = self.process_q_point(q, lattice_info, vels, cell_vecs)
-                self.qdot[:, q_index, ...] = qdot_q
-
-    def process_q_point(self, q_index, lattice_info, vels, cell_vecs):
-
-        print('\tNow calculating q-point {0}/{1}:\tq = ({2:.4f}, {3:.4f}, {4:.4f})'
-              .format(q_index + 1, lattice_info.num_qpoints,
-                      lattice_info.reduced_qpoints[q_index, 0],
-                      lattice_info.reduced_qpoints[q_index, 1],
-                      lattice_info.reduced_qpoints[q_index, 2]))
-
-        #exp_fac = np.tile(lattice_info.qpoints[q_index, :], (self.num_unit_cells, 1))
-        #exp_fac = np.exp(1j * np.multiply(exp_fac, cell_vecs).sum(axis=1))
-        exp_fac = np.exp(1.0j * np.dot(cell_vecs, lattice_info.qpoints[q_index, :]))   # for triclinic cell
-
-        qdot_q = self._loop_over_basis(vels, exp_fac, lattice_info)
-
-        return q_index, qdot_q
-
-    def _loop_over_basis(self, vels, exp_fac, lattice_info):
-
-        num_frames = vels.shape[0]
-        if self.output_partial:
-            qdot_q = np.zeros((num_frames, self.num_types, 3))
-        else:
-            qdot_q = np.zeros(num_frames)
-
-        for b_idx in range(self.num_basis):
-
-            t_idx = self.basis_to_type[b_idx]
-            mass = lattice_info.masses[b_idx]
-            basis_ids = np.argwhere(lattice_info.basis_index == (b_idx + 1)).reshape(self.num_unit_cells)
-            #print(f'basis_idx={b_idx}, type_idx={t_idx}, mass={mass}')
-            
-            for dim in range(3):
-                v_fft_sum = fft(np.squeeze(vels[:, basis_ids, dim]) * exp_fac, axis=0).sum(axis=1)
-                qdot_q_term = (np.abs(v_fft_sum)**2) * mass * self.amu_2_kg
-                
-                if self.output_partial:
-                    qdot_q[:, t_idx, dim] += qdot_q_term
-                else:
-                    qdot_q += qdot_q_term
-
-        return qdot_q
-
-    ################################################################################################
-    ### read vels and pos from the hdf5 file
-
     def _get_simulation_data(self, params, lattice_info):
+        """Read only the current block and derive averaged cell vectors."""
+
         try:
-            # Open the HDF5 file in read-only mode
-            with h5py.File(params.output_hdf5, 'r') as database:
-                vels = database['velocity'][self.loop_index * self.num_frame_per_split:
-                                            (self.loop_index + 1) * self.num_frame_per_split, :, :]
+            start = self.block_index * self.num_frames_per_block
+            stop = (self.block_index + 1) * self.num_frames_per_block
+            frames = slice(start, stop)
 
-                vels = vels * self.scaling_velocity  # From A/ps to m/s or from A/fs to m/s
+            with NetCDFReader(params.trajectory_path) as trajectory:
+                vels = trajectory.read_velocities(frames)
+                pos = trajectory.read_positions(frames)
 
-                pos = database['position'][self.loop_index * self.num_frame_per_split:
-                                           (self.loop_index + 1) * self.num_frame_per_split, :, :]
-
-            # Time average the positions
+            # Reference atoms identify corresponding cells across the block.
             cell_vecs = pos[:, lattice_info.cell_ref_ids, :].mean(axis=0)
-
             return vels, cell_vecs
-
-        except Exception as e:
-            raise EOFError(f'******* Can\'t open {params.output_hdf5}\nError: {e}, please check its integrity and that of \'basis.in\' file. *******')
-
+        except Exception as error:
+            raise EOFError(
+                f"******* Can't read {params.trajectory_path}\n"
+                f"Error: {error}; check the trajectory and 'basis.in'. *******"
+            ) from error
