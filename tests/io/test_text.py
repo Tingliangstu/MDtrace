@@ -1,7 +1,9 @@
 """Tests for fast GPUMD and LAMMPS text-to-NetCDF conversion."""
 
 import importlib.util
+import io
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -55,6 +57,21 @@ ITEM: ATOMS id type x y z vx vy vz
 
 @unittest.skipUnless(NETCDF4_AVAILABLE, "netCDF4 is not installed")
 class TextConversionTests(unittest.TestCase):
+    def test_conversion_prints_progress_and_destination(self) -> None:
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "dump.xyz"
+            source.write_text(GPUMD_TEXT, encoding="utf-8")
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                prepared, _ = prepare_trajectory(source, batch_size=1)
+
+            message = output.getvalue()
+            self.assertIn("Converting text trajectory to NetCDF", message)
+            self.assertIn(str(prepared), message)
+            self.assertIn("100%", message)
+            self.assertIn("2 frames", message)
+
     def test_gpumd_xyz_is_streamed_and_reused(self) -> None:
         with TemporaryDirectory() as directory:
             source = Path(directory) / "dump.xyz"

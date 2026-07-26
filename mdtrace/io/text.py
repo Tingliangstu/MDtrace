@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+import sys
+import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from uuid import uuid4
 
@@ -38,6 +40,37 @@ from mdtrace.io.schema import (
 GPUMD_XYZ = "gpumd_xyz"
 LAMMPS_DUMP = "lammps_dump"
 TEXT_FORMATS = (GPUMD_XYZ, LAMMPS_DUMP)
+ProgressCallback = Callable[[int, int], None]
+
+
+def _make_progress_reporter(total_bytes: int) -> ProgressCallback:
+    """Return a compact one-line reporter based on consumed source bytes."""
+
+    total_bytes = max(total_bytes, 1)
+    started = time.perf_counter()
+    last_percent = -1
+
+    def report(num_frames: int, consumed_bytes: int) -> None:
+        nonlocal last_percent
+        percent = min(100, int(100 * consumed_bytes / total_bytes))
+        if percent == last_percent:
+            return
+        last_percent = percent
+
+        width = 40
+        filled = width * percent // 100
+        bar = "=" * filled + "-" * (width - filled)
+        elapsed = max(time.perf_counter() - started, 1.0e-9)
+        speed_mib = consumed_bytes / elapsed / (1024**2)
+        sys.stdout.write(
+            f"\r  🚀 Writing NetCDF [{bar}] {percent:3d}%"
+            f" | {num_frames:,} frames | {speed_mib:6.1f} MiB/s"
+        )
+        sys.stdout.flush()
+        if percent == 100:
+            sys.stdout.write("\n")
+
+    return report
 
 
 def detect_text_format(path: Path) -> str:
@@ -92,6 +125,7 @@ def iter_gpumd_xyz(
     path: Path,
     batch_size: int = 32,
     dtype=np.float32,
+    progress: ProgressCallback | None = None,
 ) -> Iterator[TrajectoryBatch]:
     """Parse GPUMD extended XYZ using one NumPy conversion per frame."""
 
@@ -170,10 +204,15 @@ def iter_gpumd_xyz(
             if len(pending) == batch_size:
                 yield _stack_batch(batch_start, pending)
                 batch_start += len(pending)
+                if progress is not None:
+                    progress(batch_start, stream.tell())
                 pending = []
 
-    if pending:
-        yield _stack_batch(batch_start, pending)
+        if pending:
+            yield _stack_batch(batch_start, pending)
+            batch_start += len(pending)
+            if progress is not None:
+                progress(batch_start, stream.tell())
 
 
 def _lammps_cell(bounds: list[np.ndarray], triclinic: bool) -> np.ndarray:
@@ -207,6 +246,7 @@ def iter_lammps_dump(
     batch_size: int = 32,
     lammps_unit: str = "metal",
     dtype=np.float32,
+    progress: ProgressCallback | None = None,
 ) -> Iterator[TrajectoryBatch]:
     """Parse one LAMMPS custom dump containing positions and velocities."""
 
@@ -311,10 +351,15 @@ def iter_lammps_dump(
             if len(pending) == batch_size:
                 yield _stack_batch(batch_start, pending)
                 batch_start += len(pending)
+                if progress is not None:
+                    progress(batch_start, stream.tell())
                 pending = []
 
-    if pending:
-        yield _stack_batch(batch_start, pending)
+        if pending:
+            yield _stack_batch(batch_start, pending)
+            batch_start += len(pending)
+            if progress is not None:
+                progress(batch_start, stream.tell())
 
 
 def convert_text_trajectory(
@@ -330,13 +375,28 @@ def convert_text_trajectory(
 
     source = Path(source)
     output = Path(output)
+    total_bytes = source.stat().st_size
+    progress = _make_progress_reporter(total_bytes)
+    print(
+        "\n  🚀 Converting text trajectory to NetCDF"
+        f"\n     Source      : {source}"
+        f"\n     Output      : {output}"
+        f"\n     Format      : {source_format}"
+        f"\n     Compression : level {compression_level}"
+        f"\n     Batch size  : {batch_size} frames\n"
+    )
     if source_format == GPUMD_XYZ:
-        batches = iter_gpumd_xyz(source, batch_size=batch_size)
+        batches = iter_gpumd_xyz(
+            source,
+            batch_size=batch_size,
+            progress=progress,
+        )
     elif source_format == LAMMPS_DUMP:
         batches = iter_lammps_dump(
             source,
             batch_size=batch_size,
             lammps_unit=lammps_unit,
+            progress=progress,
         )
     else:
         raise ValueError(
@@ -358,7 +418,9 @@ def convert_text_trajectory(
             writer.append(batch)
         writer.finish()
         os.replace(str(temporary), str(output))
-    except Exception:
+    except BaseException:
+        # Also clean up a partially written temporary file after Ctrl+C.
+        sys.stdout.write("\n")
         writer.abort()
         try:
             temporary.unlink()
