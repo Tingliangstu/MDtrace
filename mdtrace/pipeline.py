@@ -215,10 +215,6 @@ def run(params):
         print(f"✖  Unknown action: '{action}'. Supported: thinking, {list(steps.keys())}")
         sys.exit(1)
 
-    print(f"\n{'='*60}")
-    print(f"  mdtrace  |  method = {method}  |  action = {action}")
-    print(f"{'='*60}\n")
-
     if method == "eels":
         step_compute_eels(params)
 
@@ -232,9 +228,7 @@ def run(params):
         # ── explicit action ──
         steps[action](params)
 
-    print(f"\n{'='*60}")
-    print("  mdtrace finished.")
-    print(f"{'='*60}\n")
+    print("\n  ✅ MDtrace task finished successfully.\n")
 
 
 def _run_thinking(params, method, steps):

@@ -58,7 +58,29 @@ TAGLINE = "\n".join(
 
 def _print_banner():
     print(f"\n{LOGO}\n\n{TAGLINE}\n")
-    print(f"{_BANNER_INDENT}{'=' * _BANNER_WIDTH}")
+
+
+def _print_run_summary(input_file, params):
+    """Print one aligned panel describing the task about to run."""
+
+    if params.backend == "cupy":
+        backend = "CuPy (single GPU)"
+    elif params.max_cores == 1:
+        backend = "NumPy (1 CPU process)"
+    else:
+        backend = f"NumPy (up to {params.max_cores} CPU processes)"
+
+    border = f"{_BANNER_INDENT}{'=' * _BANNER_WIDTH}"
+    divider = f"{_BANNER_INDENT}{'-' * _BANNER_WIDTH}"
+    print(border)
+    print(f"{_BANNER_INDENT}🚀 Starting MDtrace task")
+    print(divider)
+    print(f"{_BANNER_INDENT}Input   : {input_file}")
+    print(f"{_BANNER_INDENT}Method  : {params.method.upper()}")
+    print(f"{_BANNER_INDENT}Action  : {params.action}")
+    print(f"{_BANNER_INDENT}Backend : {backend}")
+    print(f"{_BANNER_INDENT}Output  : {params.out_files_name}")
+    print(f"{border}\n")
 
 
 def _show_help():
@@ -161,10 +183,10 @@ def main():
         sys.exit(1)
 
     _print_banner()
-    print(f"  Input: {input_file}\n")
 
     # ── parse ──
     params = read_input(input_file)
+    _print_run_summary(input_file, params)
 
     # ── go ──
     run_pipeline(params)
