@@ -26,7 +26,6 @@ Related parameters
 
 - :doc:`qpoint_slice_index <qpoint_slice_index>`
 - :doc:`lorentz_fit_all_qpoint <lorentz_fit_all_qpoint>`
-- :doc:`lorentz <lorentz>`
 - :doc:`peak_height <peak_height>`
 - :doc:`peak_prominence <peak_prominence>`
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`

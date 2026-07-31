@@ -136,7 +136,7 @@ common_params = {
     "out_files_name": Parameter("mdtrace", read_text),
     "lammps_unit": Parameter("metal", read_lower_text),
     "netcdf_compression_level": Parameter(1, read_int),
-    "netcdf_batch_size": Parameter(32, read_int),
+    "netcdf_batch_size": Parameter(64, read_int),
 
     # Trajectory sampling
     "time_step": Parameter(0.0, read_float),
@@ -186,11 +186,15 @@ sed_params = {
     ),
 
     # Lorentz fit
-    "lorentz": Parameter(False, read_bool),
     "lorentz_fit_all_qpoint": Parameter(False, read_bool),
-    "lorentz_fit_cutoff": Parameter(None, read_optional_float),
+    "lorentz_fit_freq_min": Parameter(None, read_optional_float),
+    "lorentz_fit_freq_max": Parameter(None, read_optional_float),
+    "fit_peak_strategy": Parameter("auto", read_lower_text),
+    "fit_baseline_model": Parameter("auto", read_lower_text),
+    "fitting_function": Parameter("lorentz", read_lower_text),
     "peak_height": Parameter(None, read_optional_float),
     "peak_prominence": Parameter(None, read_optional_float),
+    "peak_min_significance": Parameter(None, read_optional_float),
     "initial_guess_hwhm": Parameter(0.001, read_float),
     "peak_max_hwhm": Parameter(1e6, read_float),
     "modulate_factor": Parameter(0, read_int),
@@ -251,6 +255,26 @@ def validate_common(params):
         raise ValueError("netcdf_batch_size must be positive")
 
 
+def validate_qpoint_slice_index(params, qpoints=None):
+    """Validate the zero-based q-point selection parameter."""
+
+    q_index = params.qpoint_slice_index
+    if q_index < 0:
+        raise ValueError(
+            "qpoint_slice_index must be non-negative (zero-based)"
+        )
+    if qpoints is None:
+        return
+
+    num_qpoints = len(np.atleast_2d(qpoints))
+    if q_index >= num_qpoints:
+        raise ValueError(
+            f"qpoint_slice_index = {q_index} is out of range: "
+            f"{num_qpoints} q-points are available; valid zero-based "
+            f"indices are 0 to {num_qpoints - 1}."
+        )
+
+
 def validate_sed(params):
     """Validate and prepare SED parameters."""
 
@@ -267,8 +291,90 @@ def validate_sed(params):
         raise ValueError("total_num_steps must not be negative")
     if params.num_qpaths < 1:
         raise ValueError("num_qpaths must be positive")
+    validate_qpoint_slice_index(params)
     if np.any(params.supercell_dim <= 0):
         raise ValueError("supercell_dim values must be positive")
+    for name in ("colorbar_min", "colorbar_max"):
+        value = getattr(params, name)
+        if value is not None and not np.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if (
+        params.colorbar_min is not None
+        and params.colorbar_max is not None
+        and params.colorbar_min >= params.colorbar_max
+    ):
+        raise ValueError(
+            "colorbar_min must be smaller than colorbar_max"
+        )
+    if (
+        params.peak_min_significance is not None
+        and (
+            not np.isfinite(params.peak_min_significance)
+            or params.peak_min_significance <= 0
+        )
+    ):
+        raise ValueError("peak_min_significance must be positive and finite")
+    if (
+        params.lorentz_fit_freq_min is not None
+        and (
+            not np.isfinite(params.lorentz_fit_freq_min)
+            or params.lorentz_fit_freq_min < 0
+        )
+    ):
+        raise ValueError(
+            "lorentz_fit_freq_min must be non-negative and finite"
+        )
+    if (
+        params.lorentz_fit_freq_max is not None
+        and (
+            not np.isfinite(params.lorentz_fit_freq_max)
+            or params.lorentz_fit_freq_max <= 0
+        )
+    ):
+        raise ValueError("lorentz_fit_freq_max must be positive and finite")
+    if (
+        params.lorentz_fit_freq_min is not None
+        and params.lorentz_fit_freq_max is not None
+        and params.lorentz_fit_freq_min >= params.lorentz_fit_freq_max
+    ):
+        raise ValueError(
+            "lorentz_fit_freq_min must be smaller than "
+            "lorentz_fit_freq_max"
+        )
+    supported_baselines = {"none", "constant", "linear", "auto"}
+    if params.fit_baseline_model not in supported_baselines:
+        supported = ", ".join(sorted(supported_baselines))
+        raise ValueError(
+            f"fit_baseline_model must be one of: {supported}"
+        )
+    supported_peak_strategies = {"independent", "joint", "auto"}
+    if params.fit_peak_strategy not in supported_peak_strategies:
+        supported = ", ".join(sorted(supported_peak_strategies))
+        raise ValueError(
+            f"fit_peak_strategy must be one of: {supported}"
+        )
+    supported_fitting_functions = {"lorentz", "dho", "auto"}
+    if params.fitting_function not in supported_fitting_functions:
+        supported = ", ".join(sorted(supported_fitting_functions))
+        raise ValueError(
+            f"fitting_function must be one of: {supported}"
+        )
+    if (
+        not np.isfinite(params.initial_guess_hwhm)
+        or params.initial_guess_hwhm <= 0
+    ):
+        raise ValueError("initial_guess_hwhm must be positive and finite")
+    if (
+        not np.isfinite(params.peak_max_hwhm)
+        or params.peak_max_hwhm <= 0
+    ):
+        raise ValueError("peak_max_hwhm must be positive and finite")
+    if params.initial_guess_hwhm > params.peak_max_hwhm:
+        raise ValueError(
+            "initial_guess_hwhm must not exceed peak_max_hwhm"
+        )
+    if params.modulate_factor < 0:
+        raise ValueError("modulate_factor must be non-negative")
 
     if needs_compute and params.prim_unitcell is None:
         raise ValueError("prim_unitcell is required for SED computation")
@@ -327,7 +433,6 @@ def validate_sed(params):
         params.plot_partial_dir,
     ) = params.plot_partial_SED
 
-    params.plot_partial_type = None
     if params.plot_partial_SED:
         try:
             masses = np.loadtxt(
@@ -354,8 +459,7 @@ def validate_sed(params):
             raise ValueError(
                 f"element '{params.plot_partial_element}' was not found "
                 f"in the input structure '{params.basis_lattice_file}'"
-        )
-        params.plot_partial_type = int(matches[0])
+            )
 
     # Filled later when phonopy eigenvectors are used.
     params.with_eigs = None
@@ -396,4 +500,9 @@ methods = {
 }
 
 
-__all__ = ["common_params", "methods", "validate_common"]
+__all__ = [
+    "common_params",
+    "methods",
+    "validate_common",
+    "validate_qpoint_slice_index",
+]

@@ -6,8 +6,8 @@ same workflow:
 
 1. Generate ``model.xyz`` for GPUMD and ``basis.in`` for mdtrace.
 2. Run GPUMD to create ``dump.xyz``.
-3. Run mdtrace in compute mode with ``plot_SED = 0``.
-4. Run mdtrace in plotting mode with ``plot_SED = 1``.
+3. Run mdtrace with ``action = compute``.
+4. Reuse the result with ``action = plot``.
 5. Optionally fit Lorentzian peaks and compare with lattice dynamics.
 
 Each material section links to its example folder and embeds representative
@@ -41,7 +41,7 @@ Carbon Nanotube
    mdtrace input_SED.in
 
 The CNT example uses a ``1 x 1 x 160`` supercell and the q-path ``G-A`` along
-the tube axis. After the compute run, set ``plot_SED = 1`` to generate the SED
+the tube axis. After the compute run, set ``action = plot`` to generate the SED
 figure. The example also enables all-q-point Lorentz fitting after the peak
 settings are tuned.
 
@@ -218,20 +218,21 @@ In compute mode:
 
 .. code-block:: text
 
-   plot_SED = 0
+   action = compute
    output_partial = 1
 
 In plot mode:
 
 .. code-block:: text
 
-   plot_SED = 1
-   plot_partial_SED = 3
-   plot_partial_SED = 3 x
+   action = plot
+   plot_partial_SED = Sr
+   # or
+   plot_partial_SED = Sr x
 
-``plot_partial_SED = 3`` plots the summed ``x+y+z`` contribution for atom type
-3. ``plot_partial_SED = 3 x`` plots only the x-direction contribution for atom
-type 3.
+``plot_partial_SED = Sr`` plots the summed ``x+y+z`` contribution for
+strontium. ``plot_partial_SED = Sr x`` plots only its x-direction
+contribution.
 
 The following SrTiO\ :sub:`3` cubic examples from
 `issue #39 <https://github.com/Tingliangstu/mdtrace/issues/39>`_ show atom-type

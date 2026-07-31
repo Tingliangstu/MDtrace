@@ -8,17 +8,18 @@ initial_guess_hwhm
    initial_guess_hwhm = 0.001
 
 **Meaning**
-   Initial half-width at half maximum (HWHM) used when mdtrace starts a
-   Lorentzian fit. If fits fail or converge to unreasonable widths, this value
-   can help guide the optimizer.
+   Minimum initial equivalent half-width at half maximum (HWHM) used when
+   mdtrace starts a Lorentz or DHO fit. The measured half-height width is used
+   when it is larger. If fits fail or converge to unreasonable widths, this
+   value can help guide the optimizer.
 
 **Default**
    ``0.001``.
 
 **Notes**
-   This value is the starting guess for the Lorentzian half-width at
-   half-maximum, passed to ``scipy.optimize.curve_fit``. It has units of THz in
-   the current mdtrace fitting workflow.
+   This value has units of THz. It also contributes to the adaptive maximum
+   width used to prevent a fitted component from turning into a flat
+   background.
 
    In the SED theory used by mdtrace, the fitted peak is written as a Lorentzian
 
@@ -54,6 +55,6 @@ Related parameters
 - :doc:`peak_height <peak_height>`
 - :doc:`peak_prominence <peak_prominence>`
 - :doc:`peak_max_hwhm <peak_max_hwhm>`
-- :doc:`lorentz_fit_cutoff <lorentz_fit_cutoff>`
-- :doc:`lorentz <lorentz>`
+- :doc:`lorentz_fit_freq_min <lorentz_fit_freq_min>`
+- :doc:`lorentz_fit_freq_max <lorentz_fit_freq_max>`
 - :doc:`modulate_factor <modulate_factor>`

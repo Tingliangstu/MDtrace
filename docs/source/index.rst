@@ -9,8 +9,9 @@ factor support is being developed on the same trajectory and command
 infrastructure.
 
 Start with :doc:`starting`, then use :doc:`input_parameters` as the current
-input-file reference. The equations, units, normalization, and implementation
-logic are described in :doc:`theory`.
+input-file reference. The public SED unit and plot conventions are defined in
+:doc:`sed_units`; equations, normalization, and implementation logic are
+described in :doc:`theory`.
 
 .. toctree::
    :maxdepth: 2
@@ -20,6 +21,7 @@ logic are described in :doc:`theory`.
    installation
    starting
    input_parameters
+   sed_units
    theory
    troubleshooting
    reference

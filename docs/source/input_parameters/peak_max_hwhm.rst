@@ -8,15 +8,18 @@ peak_max_hwhm
    peak_max_hwhm = 0.1
 
 **Meaning**
-   Maximum allowed fitted half-width at half maximum (HWHM). It prevents very
-   broad or failed Lorentzian fits from being accepted as physical peaks.
+   User-specified hard maximum for the fitted equivalent HWHM. MDtrace also
+   applies a tighter adaptive bound based on the detected peak width,
+   frequency-bin spacing, and the local peak window. This prevents a peak
+   component from becoming nearly constant and impersonating the baseline.
 
 **Default**
    ``1e6``.
 
 **Notes**
-   In most cases, this parameter does not need to be adjusted. Set a smaller
-   value only when broad or noisy peaks cause unreasonable Lorentzian fits.
+   In most cases, this parameter does not need to be adjusted because the
+   adaptive bound is active. Fits that reach it are flagged in the ``.models``
+   diagnostic file.
 
 :doc:`Back to Parameter Index <../input_parameters>`
 
@@ -26,6 +29,6 @@ Related parameters
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`
 - :doc:`peak_height <peak_height>`
 - :doc:`peak_prominence <peak_prominence>`
-- :doc:`lorentz <lorentz>`
-- :doc:`lorentz_fit_cutoff <lorentz_fit_cutoff>`
+- :doc:`lorentz_fit_freq_min <lorentz_fit_freq_min>`
+- :doc:`lorentz_fit_freq_max <lorentz_fit_freq_max>`
 - :doc:`modulate_factor <modulate_factor>`

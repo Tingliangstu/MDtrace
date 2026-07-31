@@ -81,8 +81,6 @@ num_qpaths  = 1
 q_path_name = GA
 q_path      = 0 0 0  0 0 1/2
 
-# Fit only after inspecting the spectra
-lorentz = 0
 ```
 
 Run:
@@ -91,9 +89,11 @@ Run:
 mdtrace input.in
 ```
 
-`thinking` mode reuses existing results and runs the missing stages. Text
-trajectories are converted once to a neighboring `.mdtrace.nc` file; compatible
-NetCDF trajectories are read directly in blocks.
+`thinking` mode reuses existing results and runs one missing stage at a time:
+compute and plot first, then fit on a later run after the spectra can be
+inspected. Text trajectories are converted once to a `.mdtrace.nc` file beside
+the input file; compatible NetCDF trajectories are read directly in blocks. Set
+`action = compute` to recalculate even when numerical output already exists.
 
 Common commands:
 
@@ -119,12 +119,12 @@ for plotting, partial SED, fitting, trajectory conversion, and sampling options.
 
 | Output | Description |
 |---|---|
-| `<name>.SED` | Total SED |
+| `<name>.SED` | Total SED in eV/THz |
 | `<name>.Qpts` | Reduced Q-point coordinates |
 | `<name>.THz` | Frequency axis |
 | `<name>.Q_distances_and_labels` | Path distances and high-symmetry labels |
 | `<name>-SED.png` | SED dispersion plot |
-| `<name>_partial_SED/` | Optional element/Cartesian decomposition |
+| `<name>_partial_SED/` | Optional element/Cartesian files, e.g. `<name>.SED_O_y` |
 | `LORENTZ-*.Fre_lifetime` | Current Lorentzian fit output |
 
 The precise HWHM/FWHM lifetime convention is being reviewed. The current

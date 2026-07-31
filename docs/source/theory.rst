@@ -64,11 +64,11 @@ The PYSED article writes the continuous integral explicitly. The dynasor
 implementation [Dynasor2025]_ likewise multiplies the squared FFT by
 ``delta_t**2``.
 
-Units
------
+Internal and output units
+-------------------------
 
 MDtrace converts velocity to :math:`\mathrm{m\,s^{-1}}`, time to seconds,
-and mass to kilograms. Therefore,
+and mass to kilograms during the calculation. Therefore,
 
 .. math::
 
@@ -94,6 +94,41 @@ and
 
 The symbol :math:`m_b` denotes atomic mass. The :math:`\mathrm{m^2}` in the
 unit is metre squared and comes from the squared time-integrated velocity.
+
+This internal quantity is a density per angular frequency,
+:math:`\Phi_\omega`, in :math:`\mathrm{J\,s}`. MDtrace converts the completed
+one-sided spectrum to a density per ordinary frequency in
+:math:`\mathrm{eV/THz}`:
+
+.. math::
+
+   \Phi_f[\mathrm{eV/THz}]
+   =
+   \Phi_\omega[\mathrm{J\,s}]
+   \frac{2\pi\,10^{12}}{1.602176634\times10^{-19}}.
+
+The numerical conversion factor is approximately
+:math:`3.921769\times10^{31}`. The factor :math:`2\pi` converts angular
+frequency to ordinary frequency, :math:`10^{12}` converts THz to Hz, and the
+denominator is the exact joule-per-electronvolt conversion.
+
+The ``.SED`` files, partial SED files, q-point slice plots, and Lorentzian
+peak amplitudes all use :math:`\mathrm{eV/THz}`. The dispersion heatmap
+displays the dimensionless natural-log ratio
+:math:`\ln\left(\Phi_f/(1\,\mathrm{eV\,THz^{-1}})\right)`. The complete
+public unit and plotting conventions are collected in :doc:`sed_units`.
+Consequently, integrating a written spectrum over its ``.THz`` axis directly
+gives an energy in eV:
+
+Figures retain the conventional spectral notation
+:math:`\Phi(\mathbf q,\omega)`, while the numerical frequency axis is written
+as ordinary frequency in THz.
+
+.. math::
+
+   E[\mathrm{eV}]
+   =
+   \int \Phi_f(f)[\mathrm{eV/THz}]\,df[\mathrm{THz}].
 
 Energy-preserving one-sided spectrum
 ------------------------------------
@@ -121,32 +156,23 @@ frequencies. For a classical equilibrium crystal and a commensurate Q point,
    \qquad
    N_\mathrm{bands}=3n.
 
-MDtrace writes ordinary frequency in THz and SED in :math:`\mathrm{J\,s}`.
-Since
-
-.. math::
-
-   d\omega
-   =
-   2\pi\,10^{12}\,df_\mathrm{THz},
-
-an effective SED temperature can be checked with
+Because the output is in :math:`\mathrm{eV/THz}`, an effective SED
+temperature can be checked directly from the area under the written spectrum:
 
 .. code-block:: python
 
    import numpy as np
 
    k_B = 1.380649e-23
+   eV_to_J = 1.602176634e-19
    prefix = "CNT"
    q_index = 1
    n_basis = 2
 
    frequency_thz = np.loadtxt(prefix + ".THz")
    sed = np.loadtxt(prefix + ".SED")[:, q_index]
-   energy_joule = (
-       2 * np.pi * 1.0e12
-       * np.trapz(sed, frequency_thz)
-   )
+   energy_eV = np.trapz(sed, frequency_thz)
+   energy_joule = energy_eV * eV_to_J
    temperature_sed = energy_joule / (
        0.5 * (3 * n_basis) * k_B
    )
@@ -204,8 +230,9 @@ Calculation logic
 7. Apply the FFT along time and multiply :math:`|\mathrm{FFT}|^2` by mass.
 8. Retain type/x/y/z components or sum the total SED.
 9. Apply :math:`\Delta t^2/(4\pi\tau_0N_T)` and accumulate the block online.
-10. Average blocks, fold positive and negative frequencies, and write the
-    positive-frequency output.
+10. Average blocks and fold positive and negative frequencies.
+11. Convert once from internal :math:`\mathrm{J\,s}` to
+    :math:`\mathrm{eV/THz}`, then write the positive-frequency output.
 
 The CPU path creates one process pool for the complete SED calculation. Each
 trajectory block is copied once into shared memory, and workers receive only
@@ -231,6 +258,10 @@ With :math:`\mathcal B_s` denoting basis atoms of species :math:`s`,
    \right|^2.
 
 The total is recovered by summing over species and Cartesian directions.
+For example, ``SrTiO3.SED_O_y`` contains the oxygen contribution polarized
+along :math:`y`. Partial files are stored in
+``SrTiO3_partial_SED/`` and use the element symbol instead of an internal type
+index.
 
 Linewidth convention
 --------------------

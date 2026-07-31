@@ -11,10 +11,13 @@ import numpy as np
 from scipy.fftpack import fft
 
 from mdtrace.sed.Phonon import (
+    JOULE_PER_EV,
+    JOULE_SECOND_TO_EV_PER_THZ,
     _calculate_q_batch,
     _compute_shared_q_batch,
     _element_symbol_from_mass,
     _estimate_kernel_working_bytes,
+    _GPUEventProfiler,
     _initialize_cpu_worker,
     _load_cupy,
     _qpoint_batches,
@@ -161,6 +164,79 @@ class SEDKernelTests(unittest.TestCase):
             "q = (0.5000, 0.2500, 0.0000)\n",
         )
 
+    def test_gpu_q_batches_make_one_result_transfer_per_block(self):
+        """Split or full GPU batches must return one complete block result."""
+
+        class NumPyGPUAdapter:
+            """Provide the small CuPy interface used by the GPU method."""
+
+            float64 = np.float64
+
+            def __init__(self):
+                self.fft = SimpleNamespace(fft=fft)
+                self.transfer_count = 0
+
+            def __getattr__(self, name):
+                return getattr(np, name)
+
+            def asnumpy(self, values):
+                self.transfer_count += 1
+                return np.asarray(values)
+
+        config = self._config(output_partial=True)
+        expected = _calculate_q_batch(
+            self.vels,
+            self.cell_vecs,
+            config.qpoints,
+            config.basis_ids,
+            config,
+        )
+
+        for batch_size in (3, len(config.qpoints)):
+            adapter = NumPyGPUAdapter()
+            calculator = object.__new__(spectral_energy_density)
+            calculator._cupy = adapter
+            calculator._gpu_basis_ids = config.basis_ids
+            calculator._gpu_qpoints = config.qpoints
+            calculator._gpu_q_batch_size = batch_size
+            calculator.qdot = np.zeros_like(expected)
+            calculator._print_qpoints = lambda *args: None
+
+            calculator._compute_qpoints_gpu(
+                self.vels,
+                self.cell_vecs,
+                config,
+            )
+
+            self.assertEqual(adapter.transfer_count, 1)
+            np.testing.assert_allclose(
+                calculator.qdot,
+                expected,
+                rtol=1e-13,
+            )
+
+    def test_gpu_memory_prefers_all_qpoints_when_they_fit(self):
+        """The GPU should automatically select one full Q-point batch."""
+
+        config = self._config(output_partial=True)
+        runtime = SimpleNamespace(
+            memGetInfo=lambda: (10**12, 10**12),
+        )
+        calculator = object.__new__(spectral_energy_density)
+        calculator._cupy = SimpleNamespace(
+            cuda=SimpleNamespace(runtime=runtime),
+        )
+        calculator.qdot = np.zeros((8, 7, 2, 3))
+
+        with redirect_stdout(StringIO()):
+            calculator._check_gpu_memory(
+                self.vels,
+                self.cell_vecs,
+                config,
+            )
+
+        self.assertEqual(calculator._gpu_q_batch_size, 7)
+
     def test_element_symbol_is_inferred_only_for_matching_mass(self):
         """Mass labels should identify standard elements without guessing."""
 
@@ -192,7 +268,7 @@ class SEDKernelTests(unittest.TestCase):
                 num_workers=1,
             )
         self.assertIn(
-            "🚀🚀 Estimated peak CPU array memory:",
+            "GB (trajectory block reading + SED arrays;",
             output.getvalue(),
         )
 
@@ -211,11 +287,12 @@ class SEDKernelTests(unittest.TestCase):
             block_average[1 : 1 + paired_length, ...] + negative
         )
         expected = expected[:n_half, ...]
+        expected *= JOULE_SECOND_TO_EV_PER_THZ
         retained_two_sided_power = (
             block_average[0, ...]
             + block_average[1 : 1 + paired_length, ...].sum(axis=0)
             + negative.sum(axis=0)
-        )
+        ) * JOULE_SECOND_TO_EV_PER_THZ
 
         calculator = object.__new__(spectral_energy_density)
         calculator._sed_sum = np.zeros_like(stored_blocks[0])
@@ -232,6 +309,33 @@ class SEDKernelTests(unittest.TestCase):
             retained_two_sided_power,
         )
         self.assertFalse(hasattr(calculator, "_sed_sum"))
+
+    def test_output_unit_conversion_preserves_integrated_energy(self):
+        """The eV/THz spectrum must integrate to the same physical energy."""
+
+        frequency_thz = np.linspace(0.0, 10.0, 101)
+        sed_js = 2.0e-33 * (1.0 + frequency_thz)
+        sed_ev_per_thz = (
+            sed_js * JOULE_SECOND_TO_EV_PER_THZ
+        )
+
+        energy_from_internal_ev = (
+            2
+            * np.pi
+            * 1.0e12
+            * np.trapz(sed_js, frequency_thz)
+            / JOULE_PER_EV
+        )
+        energy_from_output_ev = np.trapz(
+            sed_ev_per_thz,
+            frequency_thz,
+        )
+
+        self.assertAlmostEqual(
+            energy_from_output_ev,
+            energy_from_internal_ev,
+            places=14,
+        )
 
     def test_block_scaling_includes_discrete_time_step_squared(self):
         """The FFT sum must include dt twice after taking its magnitude squared."""
@@ -335,6 +439,7 @@ class SEDKernelTests(unittest.TestCase):
             config.basis_ids,
             config,
         )
+        profiler = _GPUEventProfiler(cp)
         actual = _calculate_q_batch(
             cp.asarray(self.vels),
             cp.asarray(self.cell_vecs),
@@ -343,12 +448,16 @@ class SEDKernelTests(unittest.TestCase):
             config,
             xp=cp,
             fft_function=cp.fft.fft,
+            gpu_profiler=profiler,
         )
+        event_times = profiler.elapsed_seconds()
         np.testing.assert_allclose(
             cp.asnumpy(actual),
             expected,
             rtol=1e-11,
         )
+        self.assertGreater(event_times["projection"], 0.0)
+        self.assertGreater(event_times["fft"], 0.0)
 
 
 if __name__ == "__main__":

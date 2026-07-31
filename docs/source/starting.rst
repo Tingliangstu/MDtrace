@@ -29,9 +29,8 @@ With no argument, MDtrace looks for ``input.in`` and then the legacy
    backend = numpy
 
 ``thinking`` mode inspects existing outputs and runs missing stages.
-``compute``, ``plot``, and ``fit`` select one stage. Existing main numerical
-outputs are reused rather than overwritten; rename or remove them before an
-intentional recomputation.
+``compute`` always recalculates and overwrites the main numerical output;
+``plot`` and ``fit`` use existing results.
 
 Minimal SED input
 -----------------
@@ -72,9 +71,6 @@ Create ``input.in``:
    plot_slice         = 1
    qpoint_slice_index = 0
    if_show_figures    = 0
-
-   # Fit only after inspecting the spectra
-   lorentz = 0
 
 Run:
 
@@ -129,9 +125,9 @@ Recommended workflow
    positions, velocities, and cell information.
 2. Prepare ``basis.in`` for the same atom order.
 3. Choose a commensurate Q path in reduced primitive reciprocal coordinates.
-4. Compute with ``lorentz = 0``.
+4. Compute the SED with ``action = compute``.
 5. Inspect the dispersion and several single-Q slices.
-6. Tune peak detection and fitting settings before enabling all-Q fitting.
+6. Tune peak detection and fitting settings, then use ``action = fit``.
 
 Backends
 --------

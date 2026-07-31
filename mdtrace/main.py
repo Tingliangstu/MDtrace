@@ -104,7 +104,7 @@ DESCRIPTION:
 ── Control ───────────────────────────────────────────────────────
 
     action = thinking      # auto-detect progress (recommended!)
-    action = compute       # compute when the main output is absent
+    action = compute       # always recompute the main numerical output
     action = plot          # plot existing numerical output
     action = fit           # fit existing SED output
 
@@ -120,8 +120,8 @@ DESCRIPTION:
     runs the next missing step:
 
       Text trajectory? → convert once to .mdtrace.nc
-      No .SED / .dsf?  → compute + plot + fit
-      No fit data?     → plot + fit
+      No .SED / .dsf?  → compute + plot
+      SED exists?      → plot if needed, then fit on the next run
       All done?        → reports complete, suggests re-run actions
 
     Write your input.in once, then just run:
@@ -140,6 +140,9 @@ DESCRIPTION:
 
     # Run the compute stage
     mdtrace input.in       # action=compute
+
+    # Fit existing SED output
+    mdtrace input.in       # action=fit
 
 REFERENCES:
     [1] Liang et al., J. Appl. Phys. 138, 075101 (2025).  [original pySED / SED]

@@ -5,19 +5,21 @@ peak_height
 
 .. code-block:: text
 
-   peak_height = 8.0e-7
+   peak_height = 1.0e-3
 
 **Meaning**
    Minimum SED intensity required for mdtrace to treat a point in a q-slice as a
    real peak. It is the basic intensity cutoff for automatic Lorentzian peak
-   fitting.
+   fitting. Its unit is ``eV/THz``.
 
 **Default**
-   No parser default.
+   ``None`` (disabled).
 
 **Notes**
-   This is the first gate for automatic peak detection. A peak must be higher
-   than this value before mdtrace attempts a Lorentzian fit.
+   Without ``peak_min_significance``, this value is passed to SciPy during the
+   original peak-detection path. When ``peak_min_significance`` is enabled,
+   ``peak_height`` remains an optional additional filter on the original
+   linear SED after adaptive candidate detection.
 
    Set this parameter from a single-q-point slice first. Use
    ``plot_slice = 1`` and inspect both the plotted spectrum and the frequencies
@@ -26,8 +28,13 @@ peak_height
    artificial phonon modes.
 
    For noisy spectra, tune ``peak_height`` together with
-   ``peak_prominence``. Height controls the absolute intensity threshold, while
-   prominence controls how clearly a peak stands out from its local background.
+   ``peak_prominence`` or use ``peak_min_significance`` for a threshold that
+   adapts to the local noise. Height controls the absolute intensity threshold,
+   while prominence controls how clearly a peak stands out from its local
+   background.
+   The example value is illustrative; determine a suitable value from the
+   plotted single-Q spectrum rather than reusing a threshold from another
+   material.
 
 :doc:`Back to Parameter Index <../input_parameters>`
 
@@ -35,8 +42,9 @@ Related parameters
 ------------------
 
 - :doc:`peak_prominence <peak_prominence>`
+- :doc:`peak_min_significance <peak_min_significance>`
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`
 - :doc:`peak_max_hwhm <peak_max_hwhm>`
-- :doc:`lorentz <lorentz>`
-- :doc:`lorentz_fit_cutoff <lorentz_fit_cutoff>`
+- :doc:`lorentz_fit_freq_min <lorentz_fit_freq_min>`
+- :doc:`lorentz_fit_freq_max <lorentz_fit_freq_max>`
 - :doc:`modulate_factor <modulate_factor>`

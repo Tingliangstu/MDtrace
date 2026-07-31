@@ -15,11 +15,12 @@ The older silicon example contains a simple script:
 `run_SED.sh <https://github.com/Tingliangstu/mdtrace/blob/main/example/For_old_version_example/Silicon/SED/run_SED.sh>`_.
 The idea is:
 
-1. set ``plot_SED = 0`` and run mdtrace once to compute ``.SED``, ``.Qpts``, and
-   ``.THz`` files;
-2. set ``plot_SED = 1`` and run mdtrace again to plot the existing SED data;
-3. repeat plot/fitting mode while tuning ``peak_height``, ``peak_prominence``,
-   ``lorentz_fit_cutoff``, and related parameters.
+1. set ``action = compute`` and run mdtrace once to compute ``.SED``, ``.Qpts``,
+   and ``.THz`` files;
+2. set ``action = plot`` and run mdtrace again to plot the existing SED data;
+3. repeat plot or fit mode while tuning ``peak_min_significance``,
+   ``peak_height``, ``peak_prominence``, ``lorentz_fit_freq_min``,
+   ``lorentz_fit_freq_max``, and related parameters.
 
 A more robust Bash version is:
 
@@ -37,11 +38,11 @@ A more robust Bash version is:
    }
 
    # First run: compute SED from the trajectory.
-   set_param plot_SED 0
+   set_param action compute
    mdtrace "${input_file}"
 
    # Second run: read existing SED data and plot or fit.
-   set_param plot_SED 1
+   set_param action plot
    mdtrace "${input_file}"
 
 This avoids changing a fixed line number. It is safer when comments or new
@@ -59,19 +60,19 @@ On Windows PowerShell, the same idea can be written as:
        Set-Content -Path $inputFile -Value $content
    }
 
-   Set-SedParam "plot_SED" "0"
+   Set-SedParam "action" "compute"
    mdtrace $inputFile
 
-   Set-SedParam "plot_SED" "1"
+   Set-SedParam "action" "plot"
    mdtrace $inputFile
 
 Keep Compute and Plot Modes Separate
 ------------------------------------
 
-Use ``plot_SED = 0`` only when the trajectory, ``basis.in``, q-path, and cell
-settings are ready. After SED files are written, use ``plot_SED = 1`` for
-plotting and fitting. This avoids recompressing large trajectories each time
-you only want to tune figure or fitting parameters.
+Use ``action = compute`` when the trajectory, ``basis.in``, q-path, and cell
+settings are ready. After SED files are written, use ``action = plot`` or
+``action = fit``. This avoids recalculating SED when you only want to tune
+figure or fitting parameters.
 
 Publish Documentation with Read the Docs
 ----------------------------------------

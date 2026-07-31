@@ -377,12 +377,17 @@ def convert_text_trajectory(
     output = Path(output)
     total_bytes = source.stat().st_size
     progress = _make_progress_reporter(total_bytes)
+    compression_label = (
+        "disabled"
+        if compression_level == 0
+        else f"zlib level {compression_level}"
+    )
     print(
         "\n  🚀 Converting text trajectory to NetCDF"
         f"\n     Source      : {source}"
         f"\n     Output      : {output}"
         f"\n     Format      : {source_format}"
-        f"\n     Compression : level {compression_level}"
+        f"\n     Compression : {compression_label}"
         f"\n     Batch size  : {batch_size} frames\n"
     )
     if source_format == GPUMD_XYZ:

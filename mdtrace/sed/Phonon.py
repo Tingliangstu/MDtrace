@@ -27,6 +27,12 @@ from mdtrace.io.netcdf import NetCDFReader
 from mdtrace.structure.atoms import atomic_masses
 
 
+JOULE_PER_EV = 1.602176634e-19
+JOULE_SECOND_TO_EV_PER_THZ = (
+    2 * np.pi * 1.0e12 / JOULE_PER_EV
+)
+
+
 @dataclass(frozen=True)
 class _SEDKernelConfig:
     """Store the small, static arrays needed by every SED worker."""
@@ -38,6 +44,51 @@ class _SEDKernelConfig:
     num_types: int
     output_partial: bool
     amu_2_kg: float
+
+
+class _GPUEventProfiler:
+    """Accumulate asynchronous CUDA event timings with minimal interference."""
+
+    def __init__(self, cupy_module):
+        self.cp = cupy_module
+        self.events = {}
+
+    def start(self):
+        """Record the beginning of one GPU stage."""
+
+        event = self.cp.cuda.Event()
+        event.record()
+        return event
+
+    def stop(self, stage, start_event):
+        """Record the end of a stage without synchronizing the GPU."""
+
+        end_event = self.cp.cuda.Event()
+        end_event.record()
+        self.events.setdefault(stage, []).append(
+            (start_event, end_event)
+        )
+
+    def measure(self, stage, operation):
+        """Enclose one queued GPU operation between CUDA events."""
+
+        start_event = self.start()
+        result = operation()
+        self.stop(stage, start_event)
+        return result
+
+    def elapsed_seconds(self):
+        """Synchronize once and return accumulated CUDA time by stage."""
+
+        self.cp.cuda.get_current_stream().synchronize()
+        return {
+            stage: sum(
+                self.cp.cuda.get_elapsed_time(start, end)
+                for start, end in event_pairs
+            )
+            / 1000.0
+            for stage, event_pairs in self.events.items()
+        }
 
 
 _CPU_WORKER_CONFIG = None
@@ -58,6 +109,7 @@ def _calculate_q_batch(
     config,
     xp=np,
     fft_function=fft,
+    gpu_profiler=None,
 ):
     """Calculate a Q-point batch with either NumPy or CuPy operations."""
 
@@ -76,16 +128,35 @@ def _calculate_q_batch(
 
     for b_idx, basis_ids in enumerate(basis_ids_by_basis):
         # Contract only the unit-cell axis. Time, xyz, and Q remain separate.
-        projected_vels = xp.tensordot(
-            vels[:, basis_ids, :],
-            phases,
-            axes=([1], [0]),
-        )
+        if gpu_profiler is None:
+            projected_vels = xp.tensordot(
+                vels[:, basis_ids, :],
+                phases,
+                axes=([1], [0]),
+            )
+        else:
+            projected_vels = gpu_profiler.measure(
+                "projection",
+                lambda: xp.tensordot(
+                    vels[:, basis_ids, :],
+                    phases,
+                    axes=([1], [0]),
+                ),
+            )
+
+        if gpu_profiler is None:
+            transformed_vels = fft_function(projected_vels, axis=0)
+        else:
+            transformed_vels = gpu_profiler.measure(
+                "fft",
+                lambda: fft_function(projected_vels, axis=0),
+            )
         spectra = (
-            xp.abs(fft_function(projected_vels, axis=0)) ** 2
+            xp.abs(transformed_vels) ** 2
             * config.masses[b_idx]
             * config.amu_2_kg
         )
+        del projected_vels, transformed_vels
 
         if config.output_partial:
             type_index = config.basis_to_type[b_idx]
@@ -286,7 +357,7 @@ class spectral_energy_density:
 
         print(
             "\n****** Velocity unit normalized to m/s; "
-            "SED unit is J*s ******"
+            "SED output unit is eV/THz ******"
         )
 
         # scipy.fftpack.fftfreq returns Hz; expose the frequency axis in THz.
@@ -308,6 +379,13 @@ class spectral_energy_density:
 
         unique_masses = np.unique(lattice_info.masses)
         self.num_types = len(unique_masses)
+        type_symbols = []
+        for type_index, mass in enumerate(unique_masses):
+            symbol = _element_symbol_from_mass(mass)
+            if symbol == "unknown":
+                symbol = f"type{type_index + 1}"
+            type_symbols.append(symbol)
+        self.type_symbols = tuple(type_symbols)
         basis_masses = np.asarray(
             lattice_info.masses[:num_basis],
             dtype=float,
@@ -350,6 +428,10 @@ class spectral_energy_density:
         if self.backend == "cupy":
             # CUDA is initialized only when the user selects this backend.
             self._cupy = _load_cupy()
+            self._gpu_timings = {"trajectory": 0.0}
+            self._gpu_event_profiler = _GPUEventProfiler(self._cupy)
+            self._gpu_observed_used_bytes = 0
+            self._gpu_total_bytes = 0
             self._gpu_basis_ids = tuple(
                 self._cupy.asarray(atom_ids)
                 for atom_ids in kernel_config.basis_ids
@@ -388,6 +470,8 @@ class spectral_energy_density:
                 executor,
                 num_workers,
             )
+            if self.backend == "cupy":
+                self._print_gpu_timing_profile()
         finally:
             # One shutdown replaces repeated pool startup/shutdown per block.
             if executor is not None:
@@ -416,14 +500,13 @@ class spectral_energy_density:
                 "different directions *******"
             )
             print(
-                "  🚀🚀 Type index -> element and mass mapping "
-                "(mass in amu; use for plotting labels):"
+                "  🚀🚀 Element -> mass mapping "
+                "(mass in amu; used for partial SED filenames):"
             )
             for type_index, mass in enumerate(unique_masses):
-                symbol = _element_symbol_from_mass(mass)
+                symbol = self.type_symbols[type_index]
                 print(
-                    f"            type {type_index + 1} = "
-                    f"{symbol} ({mass} amu)"
+                    f"            {symbol} = {mass} amu"
                 )
 
             self._sed_sum = np.zeros(
@@ -457,19 +540,20 @@ class spectral_energy_density:
             4 * np.pi * self.t_o * self.num_unit_cells
         )
         for block_index in range(self.num_blocks):
-            print(
-                "\n**************** Now calculate on averaging blocks "
-                f"{block_index + 1}/{self.num_blocks} ... ****************\n"
-            )
             self.block_index = block_index
             self._allocate_qdot(lattice_info.num_qpoints)
 
             # NetCDF supplies only this block. CPU workers share the resulting
             # vels array; the GPU path uploads that array only once.
+            read_start = time.perf_counter()
             vels, cell_vecs = self._get_simulation_data(
                 params,
                 lattice_info,
             )
+            if getattr(self, "backend", "numpy") == "cupy":
+                self._gpu_timings["trajectory"] += (
+                    time.perf_counter() - read_start
+                )
             if block_index == 0:
                 self._print_cpu_memory_estimate(
                     vels,
@@ -478,6 +562,17 @@ class spectral_energy_density:
                     executor,
                     num_workers,
                 )
+                if getattr(self, "backend", "numpy") == "cupy":
+                    self._check_gpu_memory(
+                        vels,
+                        cell_vecs,
+                        kernel_config,
+                    )
+
+            print(
+                "\n**************** Now calculate on averaging blocks "
+                f"{block_index + 1}/{self.num_blocks} ... ****************\n"
+            )
             self._loop_over_qpoints(
                 vels,
                 cell_vecs,
@@ -529,8 +624,9 @@ class spectral_energy_density:
         )
         print(
             "\n  🚀🚀 Estimated peak CPU array memory: "
-            f"{estimated_bytes / 1e6:.2f} MB "
-            "(excluding Python process overhead)."
+            f"{estimated_bytes / 1e9:.2f} GB "
+            "(trajectory block reading + SED arrays; "
+            "excluding Python overhead)."
         )
 
     def _allocate_qdot(self, num_qpoints):
@@ -630,64 +726,184 @@ class spectral_energy_density:
                 self.qdot[:, q_start:q_stop, ...] = result
 
     def _compute_qpoints_gpu(self, vels, cell_vecs, kernel_config):
-        """Upload one block once and calculate small Q batches on the GPU."""
+        """Upload one block once and return its complete result only once."""
 
         cp = self._cupy
-        if self.block_index == 0:
-            self._check_gpu_memory(vels, cell_vecs, kernel_config)
+        profiler = getattr(self, "_gpu_event_profiler", None)
+
+        upload_start = profiler.start() if profiler is not None else None
         gpu_vels = cp.asarray(vels)
         gpu_cell_vecs = cp.asarray(cell_vecs)
-        num_qpoints = kernel_config.qpoints.shape[0]
+        if profiler is not None:
+            profiler.stop("upload", upload_start)
 
-        # Q batching limits GPU temporaries. The xyz dimension remains intact.
-        for q_start, q_stop in _qpoint_batches(num_qpoints, 1):
-            self._print_qpoints(q_start, q_stop, num_qpoints)
+        num_qpoints = kernel_config.qpoints.shape[0]
+        batch_size = self._gpu_q_batch_size
+
+        # Use one large batch whenever memory permits. If batching is needed,
+        # retain every batch on the GPU and make only one final CPU transfer.
+        if batch_size == num_qpoints:
+            self._print_qpoints(0, num_qpoints, num_qpoints)
+            compute_start = profiler.start() if profiler is not None else None
             gpu_result = _calculate_q_batch(
                 vels=gpu_vels,
                 cell_vecs=gpu_cell_vecs,
-                qpoints=self._gpu_qpoints[q_start:q_stop],
+                qpoints=self._gpu_qpoints,
                 basis_ids_by_basis=self._gpu_basis_ids,
                 config=kernel_config,
                 xp=cp,
                 fft_function=cp.fft.fft,
+                gpu_profiler=profiler,
             )
-            self.qdot[:, q_start:q_stop, ...] = cp.asnumpy(gpu_result)
+            if profiler is not None:
+                profiler.stop("compute", compute_start)
+        else:
+            gpu_result = cp.empty(self.qdot.shape, dtype=cp.float64)
+            for q_start in range(0, num_qpoints, batch_size):
+                q_stop = min(q_start + batch_size, num_qpoints)
+                self._print_qpoints(q_start, q_stop, num_qpoints)
+                compute_start = (
+                    profiler.start() if profiler is not None else None
+                )
+                batch_result = _calculate_q_batch(
+                    vels=gpu_vels,
+                    cell_vecs=gpu_cell_vecs,
+                    qpoints=self._gpu_qpoints[q_start:q_stop],
+                    basis_ids_by_basis=self._gpu_basis_ids,
+                    config=kernel_config,
+                    xp=cp,
+                    fft_function=cp.fft.fft,
+                    gpu_profiler=profiler,
+                )
+                gpu_result[:, q_start:q_stop, ...] = batch_result
+                if profiler is not None:
+                    profiler.stop("compute", compute_start)
+                del batch_result
+
+        download_start = profiler.start() if profiler is not None else None
+        self.qdot[...] = cp.asnumpy(gpu_result)
+        if profiler is not None:
+            profiler.stop("download", download_start)
 
         # Release block references so CuPy can reuse these allocations.
-        del gpu_vels, gpu_cell_vecs
+        del gpu_vels, gpu_cell_vecs, gpu_result
+        if profiler is not None:
+            free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
+            self._gpu_observed_used_bytes = max(
+                self._gpu_observed_used_bytes,
+                total_bytes - free_bytes,
+            )
+            self._gpu_total_bytes = total_bytes
 
-    def _check_gpu_memory(self, vels, cell_vecs, kernel_config):
-        """Estimate the first-block GPU peak and fail before an obvious OOM."""
+    def _estimate_gpu_memory(
+        self,
+        vels,
+        cell_vecs,
+        kernel_config,
+        q_batch_size,
+    ):
+        """Estimate GPU memory for one selectable Q-point batch size."""
 
-        cp = self._cupy
-        batches = _qpoint_batches(kernel_config.qpoints.shape[0], 1)
-        max_q_batch = max(stop - start for start, stop in batches)
+        num_qpoints = kernel_config.qpoints.shape[0]
         working_bytes = _estimate_kernel_working_bytes(
             vels,
             kernel_config,
-            max_q_batch,
+            q_batch_size,
         )
 
-        # Include a small margin for FFT workspace and allocator alignment.
-        estimated_bytes = int(
+        # Split calculations retain the complete result on the GPU until all
+        # batches finish. A single batch already is that complete result.
+        retained_result = (
+            self.qdot.nbytes if q_batch_size < num_qpoints else 0
+        )
+        return int(
             1.2
             * (
                 vels.nbytes
                 + cell_vecs.nbytes
                 + working_bytes
+                + retained_result
             )
         )
+
+    def _check_gpu_memory(self, vels, cell_vecs, kernel_config):
+        """Choose the largest safe Q batch and fail before an obvious OOM."""
+
+        cp = self._cupy
+        num_qpoints = kernel_config.qpoints.shape[0]
         free_bytes, total_bytes = cp.cuda.runtime.memGetInfo()
-        print(
-            "\n  🚀🚀 Estimated peak GPU memory: "
-            f"{estimated_bytes / 1e6:.2f} MB; "
-            f"currently available: {free_bytes / 1e6:.2f} MB "
-            f"of {total_bytes / 1e6:.2f} MB."
-        )
-        if estimated_bytes > free_bytes:
+
+        # Prefer all Q points in one GPU operation. On smaller GPUs, decrease
+        # only as far as required while preserving one CPU transfer per block.
+        selected_batch = None
+        for batch_size in range(num_qpoints, 0, -1):
+            candidate_bytes = self._estimate_gpu_memory(
+                vels,
+                cell_vecs,
+                kernel_config,
+                batch_size,
+            )
+            if candidate_bytes <= free_bytes:
+                selected_batch = batch_size
+                break
+
+        if selected_batch is None:
             raise MemoryError(
                 "Estimated SED GPU memory exceeds currently available "
                 "memory. Increase num_blocks or use backend = numpy."
+            )
+
+        self._gpu_q_batch_size = selected_batch
+        used_bytes = total_bytes - free_bytes
+        print(
+            "\n  🚀🚀 GPU memory before SED: "
+            f"{used_bytes / 1e9:.2f} GB used; "
+            f"{free_bytes / 1e9:.2f} GB available "
+            f"of {total_bytes / 1e9:.2f} GB."
+        )
+
+    def _print_gpu_timing_profile(self):
+        """Print one concise timing summary accumulated over all blocks."""
+
+        event_times = self._gpu_event_profiler.elapsed_seconds()
+        compute = event_times.get("compute", 0.0)
+        projection = event_times.get("projection", 0.0)
+        fft_time = event_times.get("fft", 0.0)
+        other_gpu = max(0.0, compute - projection - fft_time)
+
+        stages = (
+            (
+                "CPU: NetCDF read + cell refs",
+                self._gpu_timings["trajectory"],
+            ),
+            ("CPU -> GPU upload", event_times.get("upload", 0.0)),
+            ("GPU: tensordot projection", projection),
+            ("GPU: FFT", fft_time),
+            ("GPU: other operations", other_gpu),
+            ("GPU -> CPU result", event_times.get("download", 0.0)),
+        )
+        profiled_total = sum(seconds for _, seconds in stages)
+
+        print(
+            "\n****************** CuPy SED timing profile "
+            "******************"
+        )
+        for label, seconds in stages:
+            percentage = (
+                100.0 * seconds / profiled_total
+                if profiled_total
+                else 0.0
+            )
+            print(
+                f"  {label:<30}: {seconds:8.2f} s "
+                f"({percentage:5.1f}%)"
+            )
+        print(f"  {'Profiled total':<30}: {profiled_total:8.2f} s")
+        if self._gpu_total_bytes:
+            print(
+                "\n  🚀🚀 Observed GPU memory after SED blocks: "
+                f"{self._gpu_observed_used_bytes / 1e9:.2f} GB used "
+                f"of {self._gpu_total_bytes / 1e9:.2f} GB."
             )
 
     def _print_qpoints(self, q_start, q_stop, num_qpoints):
@@ -703,7 +919,7 @@ class spectral_energy_density:
             )
 
     def _average_blocks_and_frequencies(self):
-        """Average blocks, pair positive/negative frequencies, and crop."""
+        """Average, fold frequencies, and convert the public SED unit."""
 
         # Reuse the accumulator allocation instead of creating another array.
         self._sed_sum /= self.num_blocks
@@ -723,6 +939,11 @@ class spectral_energy_density:
         # Preserve the previous convention: exclude the Nyquist point.
         self.sed_avg = self.sed_avg[:n_half, ...]
         self.freq_fft = self.freq_fft[:n_half]
+
+        # The SI calculation gives density per angular frequency in J*s.
+        # Convert it to density per ordinary frequency in eV/THz so that
+        # integrating the output over the THz axis directly returns eV.
+        self.sed_avg *= JOULE_SECOND_TO_EV_PER_THZ
 
     def _get_simulation_data(self, params, lattice_info):
         """Read only the current block and derive averaged cell vectors."""

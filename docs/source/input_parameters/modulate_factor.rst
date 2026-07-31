@@ -23,9 +23,9 @@ modulate_factor
 Related parameters
 ------------------
 
-- :doc:`lorentz <lorentz>`
 - :doc:`peak_height <peak_height>`
 - :doc:`peak_prominence <peak_prominence>`
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`
 - :doc:`peak_max_hwhm <peak_max_hwhm>`
-- :doc:`lorentz_fit_cutoff <lorentz_fit_cutoff>`
+- :doc:`lorentz_fit_freq_min <lorentz_fit_freq_min>`
+- :doc:`lorentz_fit_freq_max <lorentz_fit_freq_max>`

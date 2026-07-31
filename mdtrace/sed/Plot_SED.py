@@ -25,6 +25,130 @@ sns.set_context("paper", rc={"axes.linewidth": 0.75, "xtick.major.width": 0.75, 
                              "axes.labelsize": 16, "xtick.labelsize": 13.5, "ytick.labelsize": 13.5})
 # *************************** Set Seaborn style *************************
 
+def _resolve_color_limits(sed, params):
+    """Return natural-log color limits for SED values in eV/THz."""
+
+    values = np.asarray(sed)
+    positive = values[np.isfinite(values) & (values > 0)]
+    if positive.size == 0:
+        raise ValueError("SED data contain no positive values to plot")
+
+    log_values = np.log(positive)
+    automatic_min = np.trunc(log_values.min())
+    automatic_max = np.trunc(log_values.max())
+    if np.isclose(automatic_min, automatic_max):
+        automatic_min -= 1.0
+        automatic_max += 1.0
+
+    vmin = (
+        params.colorbar_min
+        if params.colorbar_min is not None
+        else automatic_min
+    )
+    vmax = (
+        params.colorbar_max
+        if params.colorbar_max is not None
+        else automatic_max
+    )
+    if vmin >= vmax:
+        raise ValueError(
+            "resolved colorbar_min must be smaller than colorbar_max"
+        )
+    return vmin, vmax
+
+
+def _prepare_sed_for_log_scale(sed, vmin, vmax):
+    """Take the natural log of positive SED values and clip for rendering."""
+
+    values = np.asarray(sed)
+    positive = np.ma.masked_less_equal(values, 0.0)
+    finite = np.ma.masked_invalid(positive)
+    return np.ma.clip(np.ma.log(finite), vmin, vmax)
+
+
+def _print_plot_detail(label, value):
+    """Print one plot detail using the pipeline's column alignment."""
+
+    print(f"      {label:<16}: {value}")
+
+
+def _input_filename(params):
+    """Return the actual input filename for user-facing plot guidance."""
+
+    return os.path.basename(getattr(params, "input_file", "input.in"))
+
+
+def _print_color_scale(params, vmin, vmax):
+    """Print the resolved color scale in aligned, readable rows."""
+
+    min_source = "user-defined" if params.colorbar_min is not None else "automatic"
+    max_source = "user-defined" if params.colorbar_max is not None else "automatic"
+    input_name = _input_filename(params)
+    _print_plot_detail(
+        "Colorbar",
+        "ln[SED / (eV/THz)] (dimensionless)",
+    )
+    _print_plot_detail(
+        "colorbar_min",
+        f"{vmin:.6g} ({min_source}, ln scale)",
+    )
+    _print_plot_detail(
+        "colorbar_max",
+        f"{vmax:.6g} ({max_source}, ln scale)",
+    )
+    _print_plot_detail(
+        "Fine-tune with",
+        f"colorbar_min / colorbar_max in {input_name}",
+    )
+
+
+def resolve_slice_frequency_limit(thz, params):
+    """Return the displayed upper frequency and its input control."""
+
+    lorentz_freq_max = getattr(params, 'lorentz_fit_freq_max', None)
+    if (
+        getattr(params, 'plot_lorentz', False)
+        and lorentz_freq_max is not None
+    ):
+        return lorentz_freq_max, "lorentz_fit_freq_max"
+    plot_cutoff = getattr(params, 'plot_cutoff_freq', None)
+    if plot_cutoff is not None:
+        return plot_cutoff, "plot_cutoff_freq"
+    return float(np.max(thz)), None
+
+
+def resolve_slice_frequency_start(thz, params):
+    """Return the displayed lower frequency and its input control."""
+
+    lorentz_freq_min = getattr(params, 'lorentz_fit_freq_min', None)
+    if (
+        getattr(params, 'plot_lorentz', False)
+        and lorentz_freq_min is not None
+    ):
+        return lorentz_freq_min, "lorentz_fit_freq_min"
+    return float(np.min(thz)), None
+
+
+def resolve_slice_output_path(params, lorentz=False):
+    """Return the output path for one single-q SED figure."""
+
+    q_index = params.qpoint_slice_index
+    if getattr(params, 'plot_partial_SED', False):
+        element = params.plot_partial_element
+        direction = params.plot_partial_dir or "xyz"
+        prefix = "LORENTZ-fitting-" if lorentz else ""
+        filename = (
+            f"{prefix}SED_{element}_{direction}-{q_index}-qpoint.png"
+        )
+        return os.path.join(
+            params.out_files_name + '_partial_SED',
+            filename,
+        )
+    if lorentz:
+        return f"LORENTZ-fitting-{q_index}-qpoint.png"
+    return f"SED-{q_index}-qpoint.png"
+
+
 def plot_bands(data, params):
     # Get data
     sed_avg = data.sed_avg
@@ -33,13 +157,6 @@ def plot_bands(data, params):
     q_distances = data.q_distances
     q_labels = data.q_labels
     
-    if getattr(params, 'plot_partial_SED', 0):
-        element = params.plot_partial_element
-        if params.plot_partial_dir:
-            print(f"************ Plotting partial SED: 🚀 {element} 🚀, direction 🚀 {params.plot_partial_dir} 🚀 ************\n")
-        else:
-            print(f"******** Plotting partial SED: 🚀 {element} 🚀, directions 🚀 x+y+z (summed) 🚀 ********\n")
-
     # ******************** Control plotting params ********************
     color = params.plot_color               # 'inferno', 'RdBu_r', 'jet', 'Spectral', 'RdYlGn' (https://matplotlib.org/stable/tutorials/colors/colormaps.html)
     interp = 'hanning'                      # 'hanning'
@@ -50,47 +167,32 @@ def plot_bands(data, params):
     max_sed_y = np.size(sed_avg, 0)
     scale_factor = max_sed_y / max_thz
     
-    vmin = params.colorbar_min                  # -8 for test
-    vmax = params.colorbar_max                  # -20 for test
-
-    # ******************** Whether to apply log scaling data ********************
-    sed_avg = np.log(sed_avg)
+    vmin, vmax = _resolve_color_limits(sed_avg, params)
+    sed_for_plot = _prepare_sed_for_log_scale(sed_avg, vmin, vmax)
     
     # ************************ Creat a figure, set its size *********************
 
     fig, ax = plt.subplots()
     fig.set_size_inches(5.5+(params.num_qpaths/2-0.5), 5)  # Control the size of the output image
 
-    if not vmin:
-        vmin = np.trunc(sed_avg.min())
-    if not vmax:
-        vmax = np.trunc(sed_avg.max())
-
-    # Refined section: Print custom messages with override tips
-    if params.colorbar_min is not None:
-        print(f"****** User-defined minimum value for SED colorbar (vmin, log scale): 🚀 {vmin} 🚀 *****\n")
-    else:
-        print(
-            f"*****  mdtrace-judged minimum value for SED colorbar (vmin, log scale): 🚀 {vmin} 🚀 *****\n"
-            f"*** User can check the SED output plot first, then fine-tune via \"colorbar_min\"! 📈 ***\n")
-
-    if params.colorbar_max is not None:
-        print(f"****** User-defined maximum value for SED colorbar (vmax, log scale): 🚀 {vmax} 🚀 *****")
-    else:
-        print(
-            f"*****  mdtrace-judged maximum value for SED colorbar (vmax, log scale): 🚀 {vmax} 🚀 *****\n"
-            f"*** User can check the SED output plot first, then fine-tune via \"colorbar_max\"! 📈 ***")
+    _print_color_scale(params, vmin, vmax)
 
     """
     Choose the plotting method based on the number of qpaths
     Set yticks (This part of the code is redundant, maybe I will remove the params.num_qpaths == 1, for now just to better repeat the previous results.)
     """
     if params.num_qpaths > 1 or params.use_contourf:
-
-        sed_avg = np.clip(sed_avg, vmin, vmax)
         levels = np.linspace(vmin, vmax, 350)
     	  
-        im = ax.contourf(q_distances, thz, sed_avg, cmap=color, levels=levels, vmin=vmin, vmax=vmax)
+        im = ax.contourf(
+            q_distances,
+            thz,
+            sed_for_plot,
+            cmap=color,
+            levels=levels,
+            vmin=vmin,
+            vmax=vmax,
+        )
         
         # Draw vertical grey lines for q_labels (excluding endpoints)
         keys = list(q_labels.keys())
@@ -98,18 +200,35 @@ def plot_bands(data, params):
             ax.axvline(x, color='grey', linestyle='--', linewidth=0.8)
 
     else:
-        print("\n********* You are using \"imshow\" method for SED plotting since single Qpaths. *********\n"
-              "**** It can be change to \"contourf\" by setting \"use_contourf = 1\" in the input.in. ****")
-        im = ax.imshow(sed_avg, cmap=color, interpolation=interp, aspect='auto', origin='lower', vmax=vmax, vmin=vmin)
+        _print_plot_detail(
+            "Rendering",
+            "SED is rendered with imshow; set "
+            f"use_contourf = 1 in {_input_filename(params)} "
+            "to use contourf",
+        )
+        im = ax.imshow(
+            sed_for_plot,
+            cmap=color,
+            interpolation=interp,
+            aspect='auto',
+            origin='lower',
+            vmin=vmin,
+            vmax=vmax,
+        )
 
     # colarbar
-    ticks = np.arange(vmin, vmax+0.01, 2)
     bar = fig.colorbar(im, ax=ax)
-    bar.set_ticks(ticks)
-    bar.set_ticklabels([str(int(t)) for t in ticks])
+    ticks = np.arange(vmin, vmax + 0.01, 2.0)
+    if ticks.size >= 2:
+        bar.set_ticks(ticks)
+        bar.set_ticklabels([f"{tick:g}" for tick in ticks])
     bar.outline.set_visible(False)
     bar.ax.tick_params(labelsize=8, width=0, length=0, pad=0.6)
-    bar.set_label(r'log($\Phi$($\mathbf{q}$, $\omega$)) (J $\cdot$ s)', fontsize=13.5)
+    bar.set_label(
+        r'$\ln\!\left[\mathrm{SED}(\mathbf{q},\omega)'
+        r'/(\mathrm{eV/THz})\right]$',
+        fontsize=13.5,
+    )
 
     # Set xticks and xticklabels
     if params.num_qpaths > 1 or params.use_contourf:
@@ -176,13 +295,6 @@ def plot_slice(data, params):
     thz = data.freq_fft
     q_index = params.qpoint_slice_index
     
-    if getattr(params, 'plot_partial_SED', 0):
-        element = params.plot_partial_element
-        if params.plot_partial_dir:
-            print(f"\n********* Plotting partial SED slice: 🚀 {element} 🚀, direction 🚀 {params.plot_partial_dir} 🚀 *********")
-        else:
-            print(f"\n***** Plotting partial SED slice: 🚀 {element} 🚀, directions 🚀 x+y+z (summed) 🚀 *****")
-
     ### ******************** creat a figure, set its size ********************
     fig, ax = plt.subplots()
     fig.set_size_inches(8, 4)
@@ -192,47 +304,169 @@ def plot_slice(data, params):
     # Plot
     alpha = 0.6
 
-    ax.semilogy(thz, sed_avg[:, q_index], ls='-', lw=1.4, color="#aa3474", marker='o', ms=5.5, fillstyle='full', alpha=alpha)
+    ax.semilogy(
+        thz,
+        sed_avg[:, q_index],
+        ls='-',
+        lw=1.4,
+        color="#aa3474",
+        marker='o',
+        ms=5.5,
+        fillstyle='full',
+        alpha=alpha,
+        zorder=5,
+    )
 
-    if params.plot_lorentz:
+    # A standalone q-point slice does not have Lorentz-fit state.  The
+    # fitting workflow adds this runtime-only flag before requesting an
+    # overlay, so default to the original plain-SED behavior when absent.
+    if getattr(params, 'plot_lorentz', False):
         save_flag = True
-        total = np.zeros(len(sed_avg[:, q_index]))
-        for i in range(len(params.popt[:, 0])):
-            if params.popt[i, 2] == 0:
-                continue
-            ax.semilogy(thz, lorentzian(thz, params.popt[i, 0], params.popt[i, 1], params.popt[i, 2]),
-                        ls='-', lw=1.5, color='C2', alpha=alpha)
+        fit_clusters = getattr(params, 'lorentz_fit_clusters', None)
+        if fit_clusters is not None:
+            selected_functions = {
+                cluster.get('fitting_function', 'lorentz')
+                for cluster in fit_clusters
+            }
+            if selected_functions == {'lorentz'}:
+                component_name = 'Lorentz peaks (above baseline)'
+            elif selected_functions == {'dho'}:
+                component_name = 'DHO peaks (above baseline)'
+            else:
+                component_name = 'Peak components (above baseline)'
+            component_label = True
+            baseline_label = True
+            fit_label = True
+            for cluster in fit_clusters:
+                fit_frequency = np.asarray(cluster['frequency'])
+                physical = fit_frequency >= 0.0
+                fit_frequency = fit_frequency[physical]
 
-            total = total + (lorentzian(thz, params.popt[i, 0], params.popt[i, 1], params.popt[i, 2]))
+                components = [
+                    np.asarray(component)[physical]
+                    for component in cluster['component_curves']
+                ]
+                baseline = np.asarray(cluster['baseline_curve'])[physical]
+                positive_baseline = baseline > 0.0
+                has_visible_baseline = np.any(positive_baseline)
+                predicted = np.asarray(cluster['predicted'])[physical]
 
-        ax.semilogy(thz, total, ls='--', lw=1.5, color='grey', alpha=alpha+0.2)
+                # For a zero-baseline single-peak window, the component and
+                # total are identical. Plot only the component so the later
+                # grey dashed curve cannot hide the green peak.
+                total_is_duplicate = (
+                    not has_visible_baseline and len(components) == 1
+                )
+                if not total_is_duplicate:
+                    ax.semilogy(
+                        fit_frequency,
+                        predicted,
+                        ls='--',
+                        lw=1.8,
+                        color='grey',
+                        alpha=alpha + 0.2,
+                        label='Fitted total' if fit_label else None,
+                        zorder=2,
+                    )
+                    fit_label = False
+
+                if has_visible_baseline:
+                    ax.semilogy(
+                        fit_frequency[positive_baseline],
+                        baseline[positive_baseline],
+                        ls=':',
+                        lw=1.7,
+                        color='C1',
+                        alpha=alpha + 0.1,
+                        label='Fitted baseline' if baseline_label else None,
+                        zorder=3,
+                    )
+                    baseline_label = False
+
+                for component in components:
+                    ax.semilogy(
+                        fit_frequency,
+                        component,
+                        ls='-',
+                        lw=1.7,
+                        color='C2',
+                        alpha=alpha + 0.1,
+                        label=component_name if component_label else None,
+                        zorder=4,
+                    )
+                    component_label = False
+            if fit_clusters:
+                handles, labels = ax.get_legend_handles_labels()
+                by_label = dict(zip(labels, handles))
+                preferred_order = (
+                    component_name,
+                    'Fitted baseline',
+                    'Fitted total',
+                )
+                ordered_labels = [
+                    label for label in preferred_order if label in by_label
+                ]
+                ax.legend(
+                    [by_label[label] for label in ordered_labels],
+                    ordered_labels,
+                    fontsize=11,
+                    frameon=False,
+                    handlelength=2.8,
+                    labelspacing=0.6,
+                )
+        else:
+            # Backward-compatible overlay for callers that only provide popt.
+            total = np.zeros(len(sed_avg[:, q_index]))
+            for i in range(len(params.popt[:, 0])):
+                if params.popt[i, 2] == 0:
+                    continue
+                component = lorentzian(
+                    thz,
+                    params.popt[i, 0],
+                    params.popt[i, 1],
+                    params.popt[i, 2],
+                )
+                ax.semilogy(
+                    thz,
+                    component,
+                    ls='-',
+                    lw=1.5,
+                    color='C2',
+                    alpha=alpha,
+                )
+                total = total + component
+
+            ax.semilogy(
+                thz,
+                total,
+                ls='--',
+                lw=1.5,
+                color='grey',
+                alpha=alpha + 0.2,
+            )
 
     # ******************** set the figure labels ********************
-    ax.set_ylabel(r'$\Phi$($\omega)$ (J $\cdot$ s)')
+    ax.set_ylabel(
+        r'$\Phi(\mathbf{q},\omega)$ (eV/THz)'
+    )
     ax.set_xlabel('Frequency (THz)')
     fig.suptitle(r'$\mathbf{{q}}$ = ({0:.3f}, {1:.3f}, {2:.3f})'.format(qpoints[q_index, 0], qpoints[q_index, 1],
                                                                qpoints[q_index, 2]), y=0.95, fontsize=15)
 
-    if params.lorentz_fit_cutoff:
-        ax.set_xlim([0, params.lorentz_fit_cutoff])
-    else:
-        ax.set_xlim([0, np.ceil(thz.max())+0.01])
+    min_frequency, _ = resolve_slice_frequency_start(thz, params)
+    max_frequency, _ = resolve_slice_frequency_limit(thz, params)
+    ax.set_xlim([min_frequency, max_frequency])
 
     if getattr(params, 'plot_partial_SED', 0):
         partial_dir = params.out_files_name + '_partial_SED'
         os.makedirs(partial_dir, exist_ok=True)
-        element = params.plot_partial_element
-        dir_label = params.plot_partial_dir if params.plot_partial_dir else "xyz"
-        if save_flag:
-            out_name = f"LORENTZ-fitting-SED_{element}_{dir_label}-{params.qpoint_slice_index}-qpoint.png"
-        else:
-            out_name = f"SED_{element}_{dir_label}-{params.qpoint_slice_index}-qpoint.png"
-        plt.savefig(os.path.join(partial_dir, out_name), format='png', dpi=650, bbox_inches='tight')
-    else:
-        if save_flag:
-            plt.savefig('LORENTZ-fitting-{}-qpoint.png'.format(params.qpoint_slice_index), format='png', dpi=650, bbox_inches='tight')
-        else:
-            plt.savefig('SED-{}-qpoint.png'.format(params.qpoint_slice_index), format='png', dpi=650, bbox_inches='tight')
+    output_path = resolve_slice_output_path(params, lorentz=save_flag)
+    plt.savefig(
+        output_path,
+        format='png',
+        dpi=650,
+        bbox_inches='tight',
+    )
 
     if params.if_show_figures:
         plt.show()
