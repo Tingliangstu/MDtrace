@@ -18,17 +18,10 @@ release = '1.0.0'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['recommonmark', 'sphinx_markdown_tables', 'nbsphinx', 'sphinx.ext.mathjax']
+extensions = ['sphinx.ext.mathjax']
 
 templates_path = ['_templates']
-exclude_patterns = [
-    'notebook/*',
-    'input_parameters/*.rst',
-    'example.rst',
-    'requirements.rst',
-    'tips.rst',
-    'tutorials.rst',
-]
+exclude_patterns = []
 
 source_suffix = {
     '.rst': 'restructuredtext',

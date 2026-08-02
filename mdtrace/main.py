@@ -91,11 +91,13 @@ USAGE:
     mdtrace -h
 
 DESCRIPTION:
-    mdtrace extracts multiple physical observables from MD trajectories:
+    MDtrace 1.0 computes phonon spectral energy density (SED), plots
+    reciprocal-space spectra, and fits spectral peaks:
 
-      method = sed   →  Phonon spectral energy density + Lorentzian fitting
-      method = dsf   →  Dynamic structure factor S(Q,ω) (neutron / X-ray)
-      method = eels  →  Electron energy-loss spectra  [coming soon]
+      method = sed   →  SED compute, plot, and Lorentz/DHO fitting
+
+    DSF and EELS are planned extensions and are not part of the
+    supported 1.0 workflow.
 
     Supported MD formats: GPUMD, LAMMPS.
 
@@ -108,8 +110,7 @@ DESCRIPTION:
     action = plot          # plot existing numerical output
     action = fit           # fit existing SED output
 
-    method = sed           # phonon SED
-    method = dsf           # dynamic structure factor
+    method = sed           # supported 1.0 method
 
     backend = numpy        # CPU (default)
     backend = cupy         # GPU (optional CuPy installation)
@@ -120,7 +121,7 @@ DESCRIPTION:
     runs the next missing step:
 
       Text trajectory? → convert once to .mdtrace.nc
-      No .SED / .dsf?  → compute + plot
+      No .SED data?    → compute + plot
       SED exists?      → plot if needed, then fit on the next run
       All done?        → reports complete, suggests re-run actions
 
@@ -135,9 +136,6 @@ DESCRIPTION:
     # SED computation
     mdtrace input.in       # method=sed, action=thinking
 
-    # DSF computation
-    mdtrace input.in       # method=dsf, action=thinking
-
     # Run the compute stage
     mdtrace input.in       # action=compute
 
@@ -147,8 +145,6 @@ DESCRIPTION:
 REFERENCES:
     [1] Liang et al., J. Appl. Phys. 138, 075101 (2025).  [original pySED / SED]
     [2] Thomas et al., Phys. Rev. B 81, 081411 (2010).    [SED method]
-    [3] Van Hove, Phys. Rev. 95, 249 (1954).              [DSF theory]
-    [4] Squires, Intro to Thermal Neutron Scattering (2012).
 """)
     sys.exit(0)
 

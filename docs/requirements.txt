@@ -1,6 +1,2 @@
 sphinx
 sphinx-rtd-theme
-sphinx-markdown-tables
-recommonmark
-nbsphinx
-ipython

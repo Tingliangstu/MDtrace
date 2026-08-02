@@ -9,8 +9,8 @@ plot_slice
 
 **Meaning**
    Controls whether mdtrace plots a one-dimensional SED spectrum at a selected
-   q-point. This is useful for choosing ``peak_height`` and
-   ``peak_prominence`` before Lorentzian fitting. The plotted quantity is
+   q-point. This is useful for checking ``peak_min_significance`` before
+   Lorentz/DHO fitting. The plotted quantity is
    :math:`\Phi(\mathbf q,\omega)` in
    :math:`\mathrm{eV\,THz^{-1}}`; only the y-axis scaling is logarithmic.
 
@@ -18,7 +18,7 @@ plot_slice
    ``0``.
 
 **Notes**
-   Use this before all-q-point Lorentz fitting to tune peak detection settings.
+   Use this before all-q-point spectral fitting to tune peak detection settings.
    Unlike the dispersion heatmap, this plot does not replace the physical SED
    values with their natural logarithms. See :doc:`../sed_units`.
 

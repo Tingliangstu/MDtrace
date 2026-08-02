@@ -11,10 +11,11 @@ peak_min_significance
    Minimum dimensionless local-noise significance used for adaptive SED peak
    detection. A value of ``4.0`` requires a candidate's prominence on the
    Hann-smoothed log SED to be at least four times the local robust noise
-   estimate.
+   estimate. See :doc:`the illustrated automatic-detection guide
+   <../peak_detection>` for the complete workflow and tuning examples.
 
 **Default**
-   ``None`` (adaptive detection disabled for backward compatibility).
+   ``4.0``.
 
 **Definition**
    The complete workflow is:
@@ -75,20 +76,14 @@ peak_min_significance
    candidates; a smaller value detects more peaks.
 
    Smoothing is used only to identify candidates. The detected frequency is
-   refined to a nearby maximum of the original SED, and Lorentzian fitting
+   refined to a nearby maximum of the original SED, and line-shape fitting
    uses the original, unsmoothed, linear SED.
-
-   ``peak_height`` and ``peak_prominence`` remain optional additional absolute
-   filters in ``eV/THz``. Leave them as ``None`` to test the adaptive
-   significance criterion by itself.
 
 :doc:`Back to Parameter Index <../input_parameters>`
 
 Related parameters
 ------------------
 
-- :doc:`peak_height <peak_height>`
-- :doc:`peak_prominence <peak_prominence>`
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`
 - :doc:`peak_max_hwhm <peak_max_hwhm>`
 - :doc:`lorentz_fit_freq_min <lorentz_fit_freq_min>`

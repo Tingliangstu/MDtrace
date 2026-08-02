@@ -27,7 +27,14 @@ from pathlib import Path
 
 from mdtrace.io.prepare import prepare_trajectory
 from mdtrace.parameters import validate_qpoint_slice_index
-from mdtrace.sed import FileIO, Lorentz, Phonon, Plot_SED, construct_BZ
+from mdtrace.sed import (
+    FileIO,
+    Lorentz,
+    OutputPaths,
+    Phonon,
+    Plot_SED,
+    construct_BZ,
+)
 
 _FIT_BLOCK_SEPARATOR = "  " + "-" * 58
 
@@ -92,10 +99,10 @@ def _fit_ready(params):
     """Return whether the currently requested fit output exists."""
 
     if params.lorentz_fit_all_qpoint:
-        output = Path("TOTAL-LORENTZ-Qpoints.Fre_lifetime")
+        output = OutputPaths.combined_lifetime_data()
     else:
-        output = Path(
-            f"LORENTZ-{params.qpoint_slice_index}-th-Qpoints.Fre_lifetime"
+        output = OutputPaths.qpoint_lifetime_data(
+            params.qpoint_slice_index
         )
     return output.is_file()
 
@@ -211,48 +218,98 @@ def step_plot_sed(params):
 
 
 def step_fit_sed(params):
-    """Lorentzian fitting of SED peaks."""
+    """Fit SED peaks and write linewidth-derived lifetimes."""
     if not _plot_data_ready(params):
         print("  ⚠  Missing SED data — run compute first")
         return
 
     if params.lorentz_fit_all_qpoint:
         # plot first (needed for fitting context)
-        print("  ▶  Lorentz fitting all Q-points ...")
+        print("  ▶  Fitting spectral peaks at all Q-points ...")
         data = FileIO.load_data(params)
         total_qpoints = len(data.q_distances)
+        incomplete_qpoints = []
         print(f"      Total Q-points       : {total_qpoints}")
         for j in range(total_qpoints):
             print(f"\n{_FIT_BLOCK_SEPARATOR}")
             print(
-                f"  ▶  Lorentz fitting Q-point #{j} "
+                f"  ▶  Fitting Q-point #{j} "
                 f"({j + 1}/{total_qpoints}) ..."
             )
             params.qpoint_slice_index = j
             params.if_show_figures = False
             params.plot_lorentz = False
             data_reload = FileIO.load_data(params)
-            Lorentz.lorentz(data_reload, params)
+            fit_result = Lorentz.lorentz(data_reload, params)
+            incomplete_peaks = [
+                int(result["peak_number"])
+                for result in fit_result.fit_clusters
+                if result["incomplete_peak_shapes"][0]
+            ]
+            if incomplete_peaks:
+                incomplete_qpoints.append((j, incomplete_peaks))
 
         total_file, total_modes = FileIO.deal_total_fre_lifetime(
             params,
             total_qpoints,
         )
-        print("\n  ▶  All-Q Lorentz fit summary")
-        print(f"      Q-points processed  : {total_qpoints}")
-        print(f"      Fitted modes        : {total_modes}")
-        print(f"      Output file         : {total_file}")
-        print("\n  ✓  All-Q Lorentz fitting complete")
+        lifetime_figure = None
+        if total_modes:
+            frequency, lifetime = FileIO.read_lifetime_data(total_file)
+            lifetime_figure = Plot_SED.plot_lifetime_summary(
+                frequency,
+                lifetime,
+                params,
+            )
+            params.lifetime_figure_output = lifetime_figure
+        print("\n  ▶  All-Q fitting summary")
+        print(f"      {'Q-points processed':<20}: {total_qpoints}")
+        print(f"      {'Fitted modes':<20}: {total_modes}")
+        print(f"      {'Lifetime data':<20}: {total_file}")
+        print(
+            f"      {'Q-point figures':<20}: "
+            f"{OutputPaths.FITTING_QPOINT_DIRECTORY}"
+        )
+        print("\n  ✓  All-Q spectral fitting complete")
+        if incomplete_qpoints:
+            incomplete_peak_count = sum(
+                len(peaks) for _, peaks in incomplete_qpoints
+            )
+            peak_word = "peak" if incomplete_peak_count == 1 else "peaks"
+            qpoint_word = (
+                "Q-point" if len(incomplete_qpoints) == 1 else "Q-points"
+            )
+            print("\n  >  Q-points to inspect")
+            print(
+                "      Incomplete line shapes: "
+                f"{incomplete_peak_count} {peak_word} across "
+                f"{len(incomplete_qpoints)} {qpoint_word}"
+            )
+            for qpoint_index, peak_numbers in incomplete_qpoints:
+                fitted_peak_word = (
+                    "peak" if len(peak_numbers) == 1 else "peaks"
+                )
+                peak_list = ", ".join(str(number) for number in peak_numbers)
+                print(
+                    f"      Q-point #{qpoint_index:<8}: "
+                    f"{fitted_peak_word} {peak_list}"
+                )
+            print("      Check these figures in Fitting-Qpoint/.")
+            print("      Adjust peak_min_significance if needed.")
         print(
             "\n  Tip: Check all fit figures. To refine one Q point, set its"
         )
         print(
-            "       qpoint_slice_index, lorentz_fit_all_qpoint = 0, and"
+            "       qpoint_slice_index, adjust peak_min_significance and"
         )
+        print(
+            "       fitting_function = auto | lorentz | dho, then set"
+        )
+        print("       lorentz_fit_all_qpoint = 0 and")
         print("       re_output_total_freq_lifetime = 1.")
     else:
         # single Q-point fit
-        print(f"  ▶  Lorentz fitting Q-point #{params.qpoint_slice_index} ...")
+        print(f"  ▶  Fitting Q-point #{params.qpoint_slice_index} ...")
         data = FileIO.load_data(params)
         validate_qpoint_slice_index(params, data.qpoints)
         Lorentz.lorentz(data, params)
@@ -261,11 +318,21 @@ def step_fit_sed(params):
                 params,
                 len(data.q_distances),
             )
+            lifetime_figure = None
+            if total_modes:
+                frequency, lifetime = FileIO.read_lifetime_data(total_file)
+                lifetime_figure = Plot_SED.plot_lifetime_summary(
+                    frequency,
+                    lifetime,
+                    params,
+                )
+                params.lifetime_figure_output = lifetime_figure
+                params.lifetime_figure_action = "redrawn"
             print(
-                "  ✓  Combined lifetime data updated → "
+                "  ✓  Combined lifetime data rebuilt → "
                 f"{total_file} ({total_modes} modes)"
             )
-        print("  ✓  Single Lorentz fit done")
+        print("\n  ✓  Single-Q spectral fit done")
 
 
 def step_compute_dsf(params):
@@ -320,6 +387,8 @@ STEP_MAP = {
 def run(params):
     """Execute the requested action for the given method."""
 
+    params.lifetime_figure_output = None
+    params.lifetime_figure_action = "written"
     method = getattr(params, "method", "sed")
     action = getattr(params, "action", "thinking")
 
@@ -345,6 +414,16 @@ def run(params):
         # ── explicit action ──
         steps[action](params)
 
+    lifetime_figure = getattr(params, "lifetime_figure_output", None)
+    if lifetime_figure is not None:
+        figure_action = getattr(
+            params,
+            "lifetime_figure_action",
+            "written",
+        )
+        print(
+            f"\n  🖼  Lifetime figure {figure_action}: {lifetime_figure}"
+        )
     print("\n  ✅ MDtrace task finished successfully.\n")
 
 

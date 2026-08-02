@@ -7,9 +7,8 @@ MDtrace reads a plain-text input file. Each active line has the form
 
    parameter_name = value
 
-Blank lines and text following ``#`` are ignored. Parameters are divided into a
-shared section and method-specific sections so future DSF and EELS options do
-not become mixed with SED settings.
+Blank lines and text following ``#`` are ignored. Version 1.0 supports the SED
+workflow; DSF and EELS are planned future extensions.
 
 Common parameters
 -----------------
@@ -27,7 +26,7 @@ Common parameters
        ``plot`` and ``fit`` use existing output
    * - ``method``
      - ``sed``
-     - ``sed``, preliminary ``dsf``, or reserved ``eels``
+     - ``sed`` is the supported 1.0 method
    * - ``backend``
      - ``numpy``
      - ``numpy`` or optional ``cupy``
@@ -211,101 +210,79 @@ SED spectral-peak fitting
      - Meaning
    * - ``lorentz_fit_all_qpoint``
      - ``0``
-     - Fit every Q point
+     - ``1`` fits every Q point; ``0`` fits only ``qpoint_slice_index``
    * - ``lorentz_fit_freq_min``
      - ``None``
      - Lowest fitted frequency in THz
    * - ``lorentz_fit_freq_max``
      - ``None``
      - Highest fitted frequency in THz
-   * - ``fit_baseline_model``
-     - ``auto``
-     - Local baseline: ``none``, ``constant``, ``linear``, or ``auto``
-   * - ``fit_peak_strategy``
-     - ``auto``
-     - Peak grouping: ``independent``, ``joint``, or ``auto``
    * - ``fitting_function``
-     - ``lorentz``
+     - ``auto``
      - Line shape: ``lorentz``, ``dho``, or ``auto``
-   * - ``peak_height``
-     - ``None``
-     - Minimum peak height in eV/THz
-   * - ``peak_prominence``
-     - ``None``
-     - Minimum peak prominence in eV/THz
-   * - ``peak_min_significance``
-     - ``None``
-     - Minimum local-noise significance for adaptive peak detection;
-       ``4.0`` is a recommended starting value
+   * - :doc:`peak_min_significance <peak_detection>`
+     - ``4.0``
+     - Minimum dimensionless local-noise significance for peak detection
    * - ``initial_guess_hwhm``
      - ``0.001``
-     - Initial HWHM in THz
+     - Initial HWHM in THz; it affects optimizer convergence, not frequency
+       resolution
    * - ``peak_max_hwhm``
      - ``1e6``
-     - User hard HWHM bound in THz; an adaptive local bound is also applied
+     - Upper HWHM bound in THz
    * - ``modulate_factor``
      - ``0``
      - Samples removed from each side of the detected fit interval
    * - ``re_output_total_freq_lifetime``
      - ``0``
-     - Rebuild the combined lifetime file
+     - After a single-Q refit, rebuild the combined lifetime file and figure;
+       ignored during all-Q fitting
 
-Fit a few single-Q spectra before enabling all-Q fitting. The current lifetime
-file retains MDtrace's existing HWHM conversion convention; users requiring a
-quantitative energy-relaxation lifetime should check the linewidth convention
-required by their theory or experiment.
+Fit a few single-Q spectra before enabling all-Q fitting. In strongly
+anharmonic systems, treat the reported time as a qualitative spectral
+descriptor rather than a quantitatively exact phonon or transport lifetime.
 
-Peak strategy, line shape, and baseline
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The frequency spacing of each fitted, block-averaged spectrum is approximately
 
-MDtrace first builds local windows separated by the valleys between detected
-peaks. ``fit_peak_strategy = independent`` fits every window separately.
-``joint`` groups peaks with broadly overlapping half-height support, while
-``auto`` uses a stricter overlap threshold and otherwise keeps the local
-fits independent. This avoids joining an entire spectrum merely because
-prominence-base intervals overlap.
+.. math::
 
-For a Lorentz fit, one local model is
+   \Delta f\,[\mathrm{THz}]
+   =
+   \frac{1000\,\mathtt{num\_blocks}}
+        {\mathtt{total\_num\_steps}\,
+         \mathtt{time\_step}\,[\mathrm{fs}]}.
+
+For ``total_num_steps = 300000``, ``time_step = 1`` fs, and
+``num_blocks = 5``, this gives :math:`\Delta f\approx0.0167` THz.
+``initial_guess_hwhm = 0.01`` is therefore a reasonable starting value for
+that example, but it does not improve the underlying frequency resolution.
+See :doc:`input_parameters/initial_guess_hwhm` for details.
+
+Independent zero-background peak fitting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+MDtrace fits every detected peak separately. Each local fitting basin is
+bounded by the lowest points of the seven-sample detection-smoothed log
+spectrum between neighboring detected peaks. For the first or last peak, the
+outer boundary is the lowest smoothed point between that peak and the selected
+frequency-range edge. This prevents one noisy raw sample from truncating a
+broad peak. After
+``modulate_factor`` is applied, every original, unsmoothed linear-SED sample in
+the resulting local range is fitted. Peaks are not grouped, jointly fitted, or
+deconvolved, and the background is fixed to zero.
+
+For a Lorentz fit, the local model is
 
 .. math::
 
    \Phi(f)
    =
-   B(f)
-   +
-   \sum_i
-   \frac{A_i}
-        {1+[(f-f_i)/h_i]^2}.
+   \frac{A}
+        {1+[(f-f_c)/h]^2}.
 
-Select the background with, for example,
-
-.. code-block:: text
-
-   fit_baseline_model = constant
-
-The available values are:
-
-``none``
-   Use :math:`B(f)=0`. This disables only the explicit background; it does
-   not select the legacy fitting-window or parameter-bound behavior.
-
-``constant``
-   Fit one non-negative value :math:`B(f)=B_0` per peak cluster.
-
-``linear``
-   Fit a non-negative straight line across the cluster interval. Internally,
-   MDtrace optimizes the background value at each edge, which prevents the
-   fitted background from becoming negative inside the interval.
-
-``auto``
-   Fit all three candidates and compare their corrected Akaike information
-   criterion (AICc). If candidates are within two AICc units, MDtrace selects
-   the simpler baseline. This avoids choosing a slope for an insignificant
-   reduction in residual error.
-
-The default is ``auto``. Selected baseline parameters are written to
-``<out_files_name>_LORENTZ-<q-index>.baseline``. The fitted figure shows the
-individual components, the selected baseline, and their sum.
+The fit figure draws each green fitted curve only over the local range actually
+used in the optimization. It does not extrapolate or sum independently fitted
+peaks.
 
 ``fitting_function = dho`` uses the velocity-spectrum damped harmonic
 oscillator line shape
@@ -316,14 +293,21 @@ oscillator line shape
    A\frac{(2h)^2 f^2}
    {(f^2-f_0^2)^2+(2hf)^2}.
 
-The reported :math:`h` is half the DHO FWHM, so its weak-damping lifetime is
-the same ``1/(2*pi*h)`` convention used for the Lorentz HWHM. In ``auto``
-mode MDtrace compares AICc but prefers Lorentz when the DHO damping ratio
+The reported :math:`h` is half the DHO FWHM, so its weak-damping
+linewidth-derived lifetime conversion is the same ``1/(2*pi*h)`` convention
+used for the Lorentz HWHM.
+In ``auto`` mode MDtrace fits Lorentz and DHO on the *same local peak range*,
+compares AICc, and chooses Lorentz when candidates are within two
+AICc units. It also chooses Lorentz when the fitted DHO damping ratio
 ``h/f0`` is below 0.05, where the two shapes are practically
-indistinguishable. DHO damping regimes and fit-quality flags are written to
-``<out_files_name>_LORENTZ-<q-index>.models`` together with the detected peak
-significance.
-Fitting remains on the original unsmoothed linear SED values.
+indistinguishable. The selected line shape is reported in the terminal output.
+
+For an underdamped DHO, the reported ``tau_SED`` remains a linewidth-derived
+spectral/coherence time. For critical or overdamped DHO fits, it is not a
+strict phonon lifetime. MDtrace retains the value in the lifetime data for
+qualitative comparison only. Compare broad or overdamped peaks only when the
+sampling length, frequency resolution, Q grid, and fitting settings are held
+fixed.
 
 Select a finite fitting interval with both bounds:
 
@@ -337,17 +321,19 @@ neither parameter is written, MDtrace detects and fits peaks over the complete
 available frequency interval. The fitted single-Q figure uses the same
 displayed frequency range.
 
-Adaptive local-noise peak detection
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Local-noise peak detection
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Set
+For a visual, step-by-step explanation and tuning guide, see
+:doc:`peak_detection`.
+
+Peak detection is controlled by the single dimensionless parameter
 
 .. code-block:: text
 
    peak_min_significance = 4.0
 
-to enable local-noise-adaptive peak detection. The default is ``None``, which
-keeps the original SciPy peak-detection path for backward compatibility.
+whose default is ``4.0``.
 
 The complete detection and fitting flow is:
 
@@ -455,26 +441,15 @@ whole spectrum by a constant and helps weak branches on a low background
 compete fairly with intense branches. Increasing the value detects fewer,
 cleaner peaks; decreasing it detects more weak peaks and more noise.
 
-The existing ``peak_height`` and ``peak_prominence`` parameters remain
-available as optional **additional** absolute filters on the original linear
-SED, both in eV/THz. To test the new adaptive criterion by itself, leave both
-of them as ``None`` or comment them out:
-
-.. code-block:: text
-
-   peak_min_significance = 4.0
-   # peak_height = 1.0e-3
-   # peak_prominence = 1.0e-4
-
 Only candidate detection uses the Hann-smoothed log spectrum. Peak positions
-are returned to nearby maxima of the original SED, and Lorentzian fitting
-continues to use the original, unsmoothed, linear SED data. This option does
+are returned to nearby maxima of the original SED, and line-shape fitting
+continues to use the original, unsmoothed, linear SED data. The detector does
 not yet enforce a minimum peak distance, a minimum peak width, or continuity
 between neighboring Q points.
 
 After fitting, the terminal reports frequency and lifetime rather than an
 unlabelled HWHM array. The reported lifetime uses the same convention as the
-``LORENTZ-*-th-Qpoints.Fre_lifetime`` files:
+``Lifetime/Fitting-*-qpoint.Fre_lifetime`` files:
 
 .. math::
 
@@ -483,24 +458,15 @@ unlabelled HWHM array. The reported lifetime uses the same convention as the
    \frac{1}
         {2\pi\,\mathrm{HWHM}_f[\mathrm{THz}]}.
 
-DSF parameters
---------------
+Roadmap
+-------
 
-DSF calculation support is preliminary.
+Dynamic structure factor (DSF) and electron energy-loss spectroscopy (EELS)
+are planned after the SED-focused 1.0 release. Their development parameters
+are not part of the supported 1.0 input-file interface.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 23 18 59
+.. toctree::
+   :hidden:
+   :glob:
 
-   * - Parameter
-     - Default
-     - Meaning
-   * - ``experiment``
-     - ``neutron``
-     - Probe convention
-   * - ``atom_types``
-     - ``None``
-     - Atom symbols in trajectory type order
-   * - ``dsf_qpoints``
-     - ``None``
-     - Reduced Q-point triples
+   input_parameters/*

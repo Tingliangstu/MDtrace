@@ -31,5 +31,3 @@ Related parameters
 - :doc:`plot_partial_SED <plot_partial_SED>`
 - :doc:`out_files_name <out_files_name>`
 - :doc:`basis_lattice_file <basis_lattice_file>`
-- :doc:`file_format <file_format>`
-- :doc:`dump_xyz_file <dump_xyz_file>`

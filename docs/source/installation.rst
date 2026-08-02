@@ -1,27 +1,30 @@
 Installation
 ============
 
+MDtrace 1.0 requires Python 3.10 or newer.
+
 From source
 -----------
 
 .. code-block:: bash
 
-   git clone https://github.com/Tingliangstu/mdtrace.git
+   git clone https://github.com/Tingliangstu/MDtrace.git mdtrace
    cd mdtrace
    python -m pip install .
    mdtrace -h
 
-The required NumPy, SciPy, netCDF4, Matplotlib, and plotting dependencies are
+The required NumPy, SciPy, netCDF4, Matplotlib, and Seaborn dependencies are
 installed automatically.
 
 Optional CuPy backend
 ---------------------
 
-Install the CuPy wheel matching the installed CUDA Toolkit:
+Install exactly one CuPy wheel matching the CUDA major version available on
+the machine:
 
 .. code-block:: bash
 
-   # Choose one
+   # Choose one; do not install both.
    python -m pip install cupy-cuda12x
    python -m pip install cupy-cuda13x
 
@@ -37,4 +40,5 @@ Enable the GPU SED kernel with
 
    backend = cupy
 
-The current implementation uses one GPU per MDtrace process.
+The current implementation uses one GPU per MDtrace process. CuPy accelerates
+SED computation; plotting and spectral fitting remain CPU operations.

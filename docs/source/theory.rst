@@ -263,10 +263,18 @@ along :math:`y`. Partial files are stored in
 ``SrTiO3_partial_SED/`` and use the element symbol instead of an internal type
 index.
 
-Linewidth convention
---------------------
+SED lifetime convention
+-----------------------
 
-The current fit model is
+For an isolated peak, the fitting workflow uses one zero-background
+Lorentzian or velocity-spectrum DHO over a local valley-bounded range. The
+range is the complete local basin
+between the lowest points of the detection-smoothed log spectrum separating
+neighboring detected peaks. This prevents a small raw-data fluctuation from
+truncating a broad peak to only a few fitting samples. For the first or last
+detected peak, the outer boundary is the lowest smoothed
+point between that peak and the selected frequency-range edge. The Lorentz
+model is
 
 .. math::
 
@@ -276,12 +284,37 @@ The current fit model is
    1+\left[(f-f_c)/h\right]^2
    },
 
-where :math:`h` is HWHM in THz and FWHM is :math:`2h`. The current lifetime
-file retains MDtrace's existing HWHM conversion convention. Users needing a
-quantitative energy-relaxation lifetime should verify whether their reference
-uses angular-frequency HWHM, angular-frequency FWHM, ordinary-frequency HWHM,
-or ordinary-frequency FWHM. Pure dephasing can also broaden a line without the
-same energy-relaxation rate.
+where :math:`h` is HWHM in THz and FWHM is :math:`2h`. The current output
+reports the linewidth-derived SED lifetime convention
+
+.. math::
+
+   \tau_\mathrm{SED}[\mathrm{ps}]
+   =
+   \frac{1}{2\pi h[\mathrm{THz}]}.
+
+For a weakly damped DHO, ``h`` has the same FWHM convention. This number is a
+spectral/coherence-time convention, not automatically the energy-relaxation
+time used in phonon transport. Pure dephasing, unresolved overlap, and strong
+anharmonicity can broaden a line without defining one quasiparticle lifetime.
+
+For critical or overdamped DHO fits, MDtrace writes the linewidth-derived
+``tau_SED`` for completeness, but it should be treated only as a qualitative
+timescale rather than a strict phonon lifetime.
+MDtrace also checks whether both fitted half-maximum points lie inside the
+actual local fitting range. If either side is missing, the terminal output
+flags the peak as incomplete. The reported HWHM still
+describes the complete analytic Lorentz or DHO line shape: the nonlinear
+optimizer estimates it from the peak height, slope, and curvature available
+inside the fitting range. It is therefore a model-extrapolated width rather
+than a FWHM directly bracketed by measured samples on both sides. Such a width
+is more sensitive to overlap, background, and line-shape assumptions, so its
+reported linewidth-derived lifetime should be used qualitatively only. The fit
+figure deliberately draws the model only over the data range used in the
+optimization and does not display the extrapolated part.
+For comparison across strongly anharmonic systems, hold the trajectory length,
+frequency resolution, Q grid, detector settings, and fitting window rule fixed
+and interpret linewidth/time trends qualitatively.
 
 References
 ----------

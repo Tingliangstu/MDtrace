@@ -17,6 +17,7 @@ from mdtrace.parser import read_input
 from mdtrace.parameters import validate_qpoint_slice_index
 from mdtrace.pipeline import (
     _run_thinking,
+    run,
     step_compute_sed,
     step_fit_sed,
     step_plot_sed,
@@ -28,6 +29,7 @@ from mdtrace.sed.Plot_SED import (
     _prepare_sed_for_log_scale,
     _resolve_color_limits,
     plot_bands,
+    plot_lifetime_summary,
     plot_slice,
     resolve_slice_frequency_limit,
     resolve_slice_frequency_start,
@@ -101,10 +103,44 @@ class ParserTests(unittest.TestCase):
             patch(
                 "mdtrace.pipeline.FileIO.deal_total_fre_lifetime"
             ) as combine,
+            patch(
+                "mdtrace.pipeline.FileIO.read_lifetime_data",
+                return_value=(np.array([1.0]), np.array([2.0])),
+            ),
+            patch(
+                "mdtrace.pipeline.Plot_SED.plot_lifetime_summary",
+                return_value="Fitting-Frequency-Lifetime.png",
+            ) as plot_lifetime,
             redirect_stdout(output),
         ):
+            fit.side_effect = [
+                SimpleNamespace(
+                    fit_clusters=[
+                        {
+                            "peak_number": 1,
+                            "incomplete_peak_shapes": np.array([False]),
+                        },
+                        {
+                            "peak_number": 2,
+                            "incomplete_peak_shapes": np.array([True]),
+                        },
+                    ]
+                ),
+                SimpleNamespace(
+                    fit_clusters=[
+                        {
+                            "peak_number": 3,
+                            "incomplete_peak_shapes": np.array([True]),
+                        },
+                        {
+                            "peak_number": 4,
+                            "incomplete_peak_shapes": np.array([True]),
+                        },
+                    ]
+                ),
+            ]
             combine.return_value = (
-                "TOTAL-LORENTZ-Qpoints.Fre_lifetime",
+                "Lifetime/Fitting-All-Qpoints.Fre_lifetime",
                 7,
             )
             step_fit_sed(params)
@@ -114,38 +150,78 @@ class ParserTests(unittest.TestCase):
         message = output.getvalue()
         self.assertIn("      Total Q-points       : 2", message)
         self.assertIn(
-            "  ▶  Lorentz fitting Q-point #0 (1/2) ...",
+            "  ▶  Fitting Q-point #0 (1/2) ...",
             message,
         )
         self.assertIn(
-            "  ▶  Lorentz fitting Q-point #1 (2/2) ...",
+            "  ▶  Fitting Q-point #1 (2/2) ...",
             message,
         )
         self.assertEqual(
             message.count("  " + "-" * 58),
             2,
         )
-        self.assertIn("  ▶  All-Q Lorentz fit summary", message)
+        self.assertIn("  ▶  All-Q fitting summary", message)
         self.assertIn("      Q-points processed  : 2", message)
         self.assertIn("      Fitted modes        : 7", message)
         self.assertIn(
-            "      Output file         : "
-            "TOTAL-LORENTZ-Qpoints.Fre_lifetime",
+            f"      {'Lifetime data':<20}: "
+            "Lifetime/Fitting-All-Qpoints.Fre_lifetime",
+            message,
+        )
+        self.assertEqual(
+            params.lifetime_figure_output,
+            "Fitting-Frequency-Lifetime.png",
+        )
+        self.assertEqual(
+            getattr(params, "lifetime_figure_action", "written"),
+            "written",
+        )
+        self.assertIn(
+            f"      {'Q-point figures':<20}: Fitting-Qpoint",
             message,
         )
         self.assertIn(
-            "  ✓  All-Q Lorentz fitting complete",
+            "  ✓  All-Q spectral fitting complete",
             message,
+        )
+        self.assertIn("  >  Q-points to inspect", message)
+        self.assertIn(
+            "      Incomplete line shapes: 3 peaks across 2 Q-points",
+            message,
+        )
+        self.assertIn("      Q-point #0       : peak 2", message)
+        self.assertIn("      Q-point #1       : peaks 3, 4", message)
+        self.assertIn(
+            "      Check these figures in Fitting-Qpoint/.",
+            message,
+        )
+        self.assertIn(
+            "      Adjust peak_min_significance if needed.",
+            message,
+        )
+        plot_lifetime.assert_called_once()
+        self.assertLess(
+            message.index("  >  Q-points to inspect"),
+            message.index("  Tip: Check all fit figures"),
         )
         self.assertIn(
             "  Tip: Check all fit figures. To refine one Q point",
             message,
         )
         self.assertIn(
+            "       qpoint_slice_index, adjust peak_min_significance and",
+            message,
+        )
+        self.assertIn(
+            "       fitting_function = auto | lorentz | dho, then set",
+            message,
+        )
+        self.assertIn(
             "       re_output_total_freq_lifetime = 1.",
             message,
         )
-        self.assertNotIn("**** TOTAL-LORENTZ", message)
+        self.assertNotIn("LORENTZ", message)
 
     def test_single_q_refit_can_rebuild_combined_lifetime_data(self):
         data = SimpleNamespace(
@@ -169,18 +245,165 @@ class ParserTests(unittest.TestCase):
             patch(
                 "mdtrace.pipeline.FileIO.deal_total_fre_lifetime",
                 return_value=(
-                    "TOTAL-LORENTZ-Qpoints.Fre_lifetime",
+                    "Lifetime/Fitting-All-Qpoints.Fre_lifetime",
                     12,
                 ),
             ) as combine,
+            patch(
+                "mdtrace.pipeline.FileIO.read_lifetime_data",
+                return_value=(np.array([1.0]), np.array([2.0])),
+            ),
+            patch(
+                "mdtrace.pipeline.Plot_SED.plot_lifetime_summary",
+                return_value="Fitting-Frequency-Lifetime.png",
+            ) as plot_lifetime,
             redirect_stdout(output),
         ):
             step_fit_sed(params)
 
         combine.assert_called_once_with(params, 3)
         self.assertIn(
-            "  ✓  Combined lifetime data updated → "
-            "TOTAL-LORENTZ-Qpoints.Fre_lifetime (12 modes)",
+            "  ✓  Combined lifetime data rebuilt → "
+            "Lifetime/Fitting-All-Qpoints.Fre_lifetime (12 modes)",
+            output.getvalue(),
+        )
+        self.assertIn(
+            "\n  ✓  Single-Q spectral fit done",
+            output.getvalue(),
+        )
+        plot_lifetime.assert_called_once()
+        self.assertEqual(params.lifetime_figure_action, "redrawn")
+
+    def test_lifetime_outputs_are_grouped_and_combined(self):
+        with TemporaryDirectory() as directory:
+            previous_directory = os.getcwd()
+            os.chdir(directory)
+            try:
+                lifetime_directory = Path("Lifetime")
+                lifetime_directory.mkdir()
+                header = "Generated by mdtrace\nFrequency (THz) lifetime (ps)\n"
+                (lifetime_directory / "Fitting-0-qpoint.Fre_lifetime").write_text(
+                    header + "1.000000 2.00000000\n",
+                    encoding="utf-8",
+                )
+                (lifetime_directory / "Fitting-1-qpoint.Fre_lifetime").write_text(
+                    header + "3.000000 4.00000000\n",
+                    encoding="utf-8",
+                )
+                combined_file = (
+                    lifetime_directory / "Fitting-All-Qpoints.Fre_lifetime"
+                )
+                combined_file.write_text(
+                    header + "99.000000 99.00000000\n",
+                    encoding="utf-8",
+                )
+
+                output_file, total_modes = FileIO.deal_total_fre_lifetime(
+                    SimpleNamespace(),
+                    2,
+                )
+                frequency, lifetime = FileIO.read_lifetime_data(output_file)
+                combined_text = combined_file.read_text(encoding="utf-8")
+            finally:
+                os.chdir(previous_directory)
+
+        self.assertEqual(
+            Path(output_file),
+            Path("Lifetime") / "Fitting-All-Qpoints.Fre_lifetime",
+        )
+        self.assertEqual(total_modes, 2)
+        np.testing.assert_allclose(frequency, [1.0, 3.0])
+        np.testing.assert_allclose(lifetime, [2.0, 4.0])
+        self.assertNotIn("99.000000", combined_text)
+
+    def test_lifetime_summary_uses_frequency_and_log_lifetime_axes(self):
+        with TemporaryDirectory() as directory:
+            previous_directory = os.getcwd()
+            os.chdir(directory)
+            try:
+                with (
+                    patch("matplotlib.figure.Figure.savefig") as savefig,
+                    patch("mdtrace.sed.Plot_SED.plt.close"),
+                ):
+                    output_path = plot_lifetime_summary(
+                        np.array([1.0, 2.0, 3.0]),
+                        np.array([10.0, 1.0, 0.1]),
+                    )
+                    figure = plt.gcf()
+            finally:
+                os.chdir(previous_directory)
+
+        self.assertEqual(
+            Path(output_path),
+            Path("Fitting-Frequency-Lifetime.png"),
+        )
+        self.assertEqual(figure.axes[0].get_xlabel(), "Frequency (THz)")
+        self.assertEqual(figure.axes[0].get_ylabel(), "Lifetime")
+        self.assertEqual(figure.axes[0].get_yscale(), "log")
+        self.assertFalse(
+            any(
+                line.get_visible()
+                for line in (
+                    figure.axes[0].get_xgridlines()
+                    + figure.axes[0].get_ygridlines()
+                )
+            )
+        )
+        savefig.assert_called_once()
+        plt.close(figure)
+
+    def test_completion_reports_new_lifetime_figure_before_success(self):
+        params = SimpleNamespace(method="sed", action="fit")
+
+        def write_lifetime_figure(received_params):
+            received_params.lifetime_figure_output = (
+                "Fitting-Frequency-Lifetime.png"
+            )
+
+        output = io.StringIO()
+        with (
+            patch.dict(
+                "mdtrace.pipeline.STEP_MAP",
+                {"sed": {"fit": write_lifetime_figure}},
+                clear=True,
+            ),
+            redirect_stdout(output),
+        ):
+            run(params)
+
+        message = output.getvalue()
+        figure_line = (
+            "  🖼  Lifetime figure written: "
+            "Fitting-Frequency-Lifetime.png"
+        )
+        success_line = "  ✅ MDtrace task finished successfully."
+        self.assertIn(figure_line, message)
+        self.assertIn(success_line, message)
+        self.assertLess(message.index(figure_line), message.index(success_line))
+
+    def test_completion_reports_redrawn_lifetime_figure(self):
+        params = SimpleNamespace(method="sed", action="fit")
+
+        def redraw_lifetime_figure(received_params):
+            received_params.lifetime_figure_output = (
+                "Fitting-Frequency-Lifetime.png"
+            )
+            received_params.lifetime_figure_action = "redrawn"
+
+        output = io.StringIO()
+        with (
+            patch.dict(
+                "mdtrace.pipeline.STEP_MAP",
+                {"sed": {"fit": redraw_lifetime_figure}},
+                clear=True,
+            ),
+            redirect_stdout(output),
+        ):
+            run(params)
+
+        self.assertIn(
+            "  🖼  Lifetime figure redrawn: "
+            "Fitting-Frequency-Lifetime.png",
             output.getvalue(),
         )
 
@@ -352,7 +575,7 @@ class ParserTests(unittest.TestCase):
         )
         self.assertEqual(
             resolve_slice_output_path(params, lorentz=True),
-            "LORENTZ-fitting-3-qpoint.png",
+            str(Path("Fitting-Qpoint") / "Fitting-3-qpoint.png"),
         )
 
     def test_qpoint_slice_index_uses_zero_based_data_bounds(self):

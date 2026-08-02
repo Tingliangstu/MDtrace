@@ -18,12 +18,22 @@ from pylab import *
 import seaborn as sns
 import numpy as np
 
-# *************************** Set Seaborn style for good look*************************
-sns.set(style="ticks")
-# Customize axis line, tick, and label properties
-sns.set_context("paper", rc={"axes.linewidth": 0.75, "xtick.major.width": 0.75, "ytick.major.width": 0.75,
-                             "axes.labelsize": 16, "xtick.labelsize": 13.5, "ytick.labelsize": 13.5})
-# *************************** Set Seaborn style *************************
+from mdtrace.sed import OutputPaths
+
+# Use one Seaborn theme for every MDtrace figure in this plotting module.
+sns.set_theme(
+    context="paper",
+    style="ticks",
+    rc={
+        "axes.grid": False,
+        "axes.linewidth": 0.75,
+        "axes.labelsize": 16,
+        "xtick.major.width": 0.75,
+        "ytick.major.width": 0.75,
+        "xtick.labelsize": 13.5,
+        "ytick.labelsize": 13.5,
+    },
+)
 
 def _resolve_color_limits(sed, params):
     """Return natural-log color limits for SED values in eV/THz."""
@@ -133,19 +143,18 @@ def resolve_slice_output_path(params, lorentz=False):
     """Return the output path for one single-q SED figure."""
 
     q_index = params.qpoint_slice_index
+    if lorentz:
+        return str(OutputPaths.fitting_qpoint_figure(q_index))
     if getattr(params, 'plot_partial_SED', False):
         element = params.plot_partial_element
         direction = params.plot_partial_dir or "xyz"
-        prefix = "LORENTZ-fitting-" if lorentz else ""
         filename = (
-            f"{prefix}SED_{element}_{direction}-{q_index}-qpoint.png"
+            f"SED_{element}_{direction}-{q_index}-qpoint.png"
         )
         return os.path.join(
             params.out_files_name + '_partial_SED',
             filename,
         )
-    if lorentz:
-        return f"LORENTZ-fitting-{q_index}-qpoint.png"
     return f"SED-{q_index}-qpoint.png"
 
 
@@ -288,6 +297,29 @@ def plot_bands(data, params):
 def lorentzian(xarr, center, amplitude, hwhm):
     return amplitude / (1 + ((xarr - center) / hwhm) ** 2)
 
+
+def velocity_dho(xarr, center, amplitude, hwhm):
+    """Evaluate the velocity-spectrum DHO used by the SED fitter."""
+
+    xarr = np.asarray(xarr, dtype=float)
+    damping_width = 2.0 * hwhm
+    numerator = amplitude * damping_width**2 * xarr**2
+    denominator = (
+        (xarr**2 - center**2) ** 2 + damping_width**2 * xarr**2
+    )
+    result = np.zeros_like(xarr)
+    np.divide(
+        numerator,
+        denominator,
+        out=result,
+        where=denominator > 0.0,
+    )
+    result[np.isclose(xarr, center) & np.isclose(denominator, 0.0)] = (
+        amplitude
+    )
+    return result
+
+
 def plot_slice(data, params):
     # ******************** Get data ********************
     sed_avg = data.sed_avg
@@ -314,6 +346,7 @@ def plot_slice(data, params):
         ms=5.5,
         fillstyle='full',
         alpha=alpha,
+        label='SED data',
         zorder=5,
     )
 
@@ -324,92 +357,42 @@ def plot_slice(data, params):
         save_flag = True
         fit_clusters = getattr(params, 'lorentz_fit_clusters', None)
         if fit_clusters is not None:
-            selected_functions = {
-                cluster.get('fitting_function', 'lorentz')
-                for cluster in fit_clusters
+            fit_styles = {
+                'lorentz': ('#45a65c', 'Lorentz peak fits'),
+                'dho': ('#7f7f7f', 'DHO peak fits'),
             }
-            if selected_functions == {'lorentz'}:
-                component_name = 'Lorentz peaks (above baseline)'
-            elif selected_functions == {'dho'}:
-                component_name = 'DHO peaks (above baseline)'
-            else:
-                component_name = 'Peak components (above baseline)'
-            component_label = True
-            baseline_label = True
-            fit_label = True
-            for cluster in fit_clusters:
-                fit_frequency = np.asarray(cluster['frequency'])
+            shown_models = set()
+            for fit in fit_clusters:
+                fit_model = fit.get('fitting_function', 'lorentz')
+                fit_color, fit_label = fit_styles[fit_model]
+                fit_frequency = np.asarray(fit['frequency'])
+                fitted_curve = np.asarray(fit['predicted'])
                 physical = fit_frequency >= 0.0
-                fit_frequency = fit_frequency[physical]
-
-                components = [
-                    np.asarray(component)[physical]
-                    for component in cluster['component_curves']
-                ]
-                baseline = np.asarray(cluster['baseline_curve'])[physical]
-                positive_baseline = baseline > 0.0
-                has_visible_baseline = np.any(positive_baseline)
-                predicted = np.asarray(cluster['predicted'])[physical]
-
-                # For a zero-baseline single-peak window, the component and
-                # total are identical. Plot only the component so the later
-                # grey dashed curve cannot hide the green peak.
-                total_is_duplicate = (
-                    not has_visible_baseline and len(components) == 1
+                ax.semilogy(
+                    fit_frequency[physical],
+                    fitted_curve[physical],
+                    ls='-',
+                    lw=2.2,
+                    color=fit_color,
+                    alpha=0.8,
+                    label=(
+                        fit_label if fit_model not in shown_models else None
+                    ),
+                    zorder=7,
                 )
-                if not total_is_duplicate:
-                    ax.semilogy(
-                        fit_frequency,
-                        predicted,
-                        ls='--',
-                        lw=1.8,
-                        color='grey',
-                        alpha=alpha + 0.2,
-                        label='Fitted total' if fit_label else None,
-                        zorder=2,
-                    )
-                    fit_label = False
-
-                if has_visible_baseline:
-                    ax.semilogy(
-                        fit_frequency[positive_baseline],
-                        baseline[positive_baseline],
-                        ls=':',
-                        lw=1.7,
-                        color='C1',
-                        alpha=alpha + 0.1,
-                        label='Fitted baseline' if baseline_label else None,
-                        zorder=3,
-                    )
-                    baseline_label = False
-
-                for component in components:
-                    ax.semilogy(
-                        fit_frequency,
-                        component,
-                        ls='-',
-                        lw=1.7,
-                        color='C2',
-                        alpha=alpha + 0.1,
-                        label=component_name if component_label else None,
-                        zorder=4,
-                    )
-                    component_label = False
+                shown_models.add(fit_model)
             if fit_clusters:
                 handles, labels = ax.get_legend_handles_labels()
                 by_label = dict(zip(labels, handles))
-                preferred_order = (
-                    component_name,
-                    'Fitted baseline',
-                    'Fitted total',
-                )
-                ordered_labels = [
-                    label for label in preferred_order if label in by_label
-                ]
+                legend_labels = ['SED data']
+                for model in ('lorentz', 'dho'):
+                    label = fit_styles[model][1]
+                    if label in by_label:
+                        legend_labels.append(label)
                 ax.legend(
-                    [by_label[label] for label in ordered_labels],
-                    ordered_labels,
-                    fontsize=11,
+                    [by_label[label] for label in legend_labels],
+                    legend_labels,
+                    fontsize=13,
                     frameon=False,
                     handlelength=2.8,
                     labelspacing=0.6,
@@ -447,9 +430,11 @@ def plot_slice(data, params):
 
     # ******************** set the figure labels ********************
     ax.set_ylabel(
-        r'$\Phi(\mathbf{q},\omega)$ (eV/THz)'
+        r'$\Phi(\mathbf{q},\omega)$ (eV/THz)',
+        fontsize=16,
     )
-    ax.set_xlabel('Frequency (THz)')
+    ax.set_xlabel('Frequency (THz)', fontsize=16)
+    ax.tick_params(axis='both', labelsize=14)
     fig.suptitle(r'$\mathbf{{q}}$ = ({0:.3f}, {1:.3f}, {2:.3f})'.format(qpoints[q_index, 0], qpoints[q_index, 1],
                                                                qpoints[q_index, 2]), y=0.95, fontsize=15)
 
@@ -461,6 +446,9 @@ def plot_slice(data, params):
         partial_dir = params.out_files_name + '_partial_SED'
         os.makedirs(partial_dir, exist_ok=True)
     output_path = resolve_slice_output_path(params, lorentz=save_flag)
+    output_directory = os.path.dirname(output_path)
+    if output_directory:
+        os.makedirs(output_directory, exist_ok=True)
     plt.savefig(
         output_path,
         format='png',
@@ -472,3 +460,46 @@ def plot_slice(data, params):
         plt.show()
 
     plt.close(fig)
+
+
+def plot_lifetime_summary(frequency, lifetime, params=None):
+    """Plot the combined linewidth-derived lifetimes versus frequency."""
+
+    frequency = np.asarray(frequency, dtype=float)
+    lifetime = np.asarray(lifetime, dtype=float)
+    valid = (
+        np.isfinite(frequency)
+        & np.isfinite(lifetime)
+        & (frequency >= 0.0)
+        & (lifetime > 0.0)
+    )
+    if not np.any(valid):
+        raise ValueError("no positive finite lifetimes are available to plot")
+
+    fig, ax = plt.subplots(figsize=(7.0, 5.0))
+    sns.scatterplot(
+        x=frequency[valid],
+        y=lifetime[valid],
+        ax=ax,
+        s=30,
+        color="#aa3474",
+        alpha=0.72,
+        linewidth=0,
+        zorder=3,
+    )
+    ax.set_xlabel("Frequency (THz)", fontsize=16)
+    ax.set_ylabel("Lifetime", fontsize=16)
+    ax.set_yscale("log")
+    ax.tick_params(axis="both", labelsize=14)
+    ax.grid(False, which="both", axis="both")
+
+    output_path = OutputPaths.lifetime_summary_figure(params)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(
+        output_path,
+        format="png",
+        dpi=450,
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+    return str(output_path)

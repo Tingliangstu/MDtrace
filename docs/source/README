@@ -1,18 +1,10 @@
-This is pySED documentation written using sphinx
+MDtrace documentation
+=====================
 
-To compile this documentation sphinx should be installed in your system.
-You can use pip to install it:
+From the repository root, install the documentation dependencies and run a
+strict HTML build:
 
-   pip install sphinx --user
+   python -m pip install -r docs/requirements.txt
+   python -m sphinx -W -b html docs/source docs/_build/html
 
-
-Use the provided Makefile to compile the documentation. Example:
-
-HTML compilation:
-
-   make html
-
-Latex document compilation (requires latex to be installed in your system):
-
-   make latexpdf
-
+The same configuration is used by Read the Docs through .readthedocs.yaml.

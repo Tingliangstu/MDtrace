@@ -1,135 +1,255 @@
-# MDtrace
+<p align="center">
+  <img src="docs/source/_static/logo.svg" alt="MDtrace logo" width="420">
+</p>
 
-> Trace the physics inside your molecular-dynamics trajectory.
+<h1 align="center">MDtrace</h1>
 
-MDtrace extracts reciprocal-space observables from molecular-dynamics
-trajectories. Its current production workflow calculates phonon spectral energy
-density (SED), plots kinetic-energy-weighted phonon dispersions, decomposes SED
-by element and Cartesian direction, and fits spectral peaks.
+<p align="center">
+  Trace reciprocal-space physics inside molecular-dynamics trajectories.
+</p>
 
-Dynamic structure factor (DSF) support is under development.
+<p align="center">
+  <a href="https://mdtrace.readthedocs.io/en/latest/">
+    <img src="https://readthedocs.org/projects/mdtrace/badge/?version=latest" alt="Documentation status">
+  </a>
+  <img src="https://img.shields.io/badge/version-1.0.0-3f7f6f" alt="MDtrace version 1.0.0">
+  <img src="https://img.shields.io/badge/python-%E2%89%A53.10-3776ab" alt="Python 3.10 or newer">
+</p>
+
+MDtrace 1.0 is an SED-focused toolkit for extracting eigenvector-free,
+kinetic-energy-weighted phonon spectra from molecular-dynamics trajectories.
+It computes and visualizes total or element/direction-resolved spectral energy
+density (SED) and performs independent Lorentzian or velocity-DHO peak fitting.
+
+Dynamic structure factor (DSF) and electron energy-loss spectroscopy (EELS)
+are planned extensions; they are not part of the supported 1.0 workflow.
+
+## Highlights
+
+- Builds exact wave vectors commensurate with a finite MD supercell.
+- Reads GPUMD extended XYZ, one-file LAMMPS custom dumps, and compatible
+  NetCDF trajectories.
+- Streams text trajectories once into a reusable `.mdtrace.nc` file.
+- Computes SED with serial NumPy, multiprocessing NumPy, or one optional CuPy
+  GPU backend.
+- Writes total and element/Cartesian-resolved SED in `eV/THz`.
+- Produces phonon-dispersion maps and logarithmic single-Q spectra.
+- Detects peaks with a local, dimensionless noise-significance criterion.
+- Fits every peak independently with a zero-background Lorentz or
+  velocity-spectrum DHO line shape; `auto` selects between them using AICc.
+- Exports per-Q and combined frequency-lifetime data plus a summary figure.
 
 ## Documentation
 
-The complete user guide is available at
-[mdtrace.readthedocs.io](https://mdtrace.readthedocs.io/en/latest/).
+The complete manual is hosted on
+[Read the Docs](https://mdtrace.readthedocs.io/en/latest/):
 
 - [Installation](https://mdtrace.readthedocs.io/en/latest/installation.html)
 - [Quick start](https://mdtrace.readthedocs.io/en/latest/starting.html)
 - [Input parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters.html)
-- [SED theory and implementation](https://mdtrace.readthedocs.io/en/latest/theory.html)
+- [Peak detection](https://mdtrace.readthedocs.io/en/latest/peak_detection.html)
+- [SED units](https://mdtrace.readthedocs.io/en/latest/sed_units.html)
+- [Theory and fitting conventions](https://mdtrace.readthedocs.io/en/latest/theory.html)
 - [Troubleshooting](https://mdtrace.readthedocs.io/en/latest/troubleshooting.html)
-
-## Main features
-
-- GPUMD extended XYZ, LAMMPS custom dump, and compatible NetCDF trajectories
-- streaming text-to-NetCDF conversion with reusable block-wise trajectory input
-- serial or multi-process NumPy SED calculation
-- optional single-GPU CuPy backend
-- total and element/Cartesian-resolved SED
-- dispersion plotting, Q-point slices, and Lorentzian peak fitting
 
 ## Installation
 
-Install the current source:
+MDtrace 1.0 requires Python 3.10 or newer. Install the current source with:
 
 ```bash
-git clone https://github.com/Tingliangstu/MDtrace.git
-cd MDtrace
+git clone https://github.com/Tingliangstu/MDtrace.git mdtrace
+cd mdtrace
 python -m pip install .
 mdtrace -h
 ```
 
-For optional GPU acceleration, install the CuPy wheel matching CUDA:
+The default NumPy backend does not require CUDA. For GPU SED computation,
+install exactly one CuPy wheel matching the CUDA major version available on the
+machine:
 
 ```bash
-# Choose one
+# Choose one; do not install both.
 python -m pip install cupy-cuda12x
 python -m pip install cupy-cuda13x
 ```
 
-The default NumPy backend does not require CUDA or CuPy.
-
-## Quick start
-
-Create `input.in`:
+Then set:
 
 ```ini
-# Control
-action  = thinking
-method  = sed
-backend = numpy
-
-# Trajectory
-trajectory_file    = ../gpumd_run/movie.nc
-out_files_name     = CNT
-time_step          = 1.0
-output_data_stride = 10
-num_blocks         = 5
-max_cores          = 8
-
-# Structure
-num_atoms          = 17920
-total_num_steps    = 500000
-basis_lattice_file = ../structure/basis.in
-supercell_dim      = 1 1 160
-prim_unitcell      = 237.433 0 0  0 237.433 0  0 0 2.463
-rescale_prim       = 1
-
-# Q path
-num_qpaths  = 1
-q_path_name = GA
-q_path      = 0 0 0  0 0 1/2
-
+backend = cupy
 ```
 
-Run:
+MDtrace uses one GPU per process. Peak detection and line-shape fitting remain
+SciPy CPU operations.
+
+## Command line
+
+```bash
+mdtrace                  # input.in, then the legacy input_SED.in
+mdtrace input.in         # explicit input file
+mdtrace -h               # command summary
+```
+
+The calculation is controlled inside the input file:
+
+```ini
+action = thinking        # run the next missing SED stage
+method = sed             # supported 1.0 method
+backend = numpy          # numpy or cupy
+```
+
+For an explicit and reproducible workflow, use the same `input.in` and change
+only `action`:
+
+1. `action = compute` — read the trajectory and overwrite the numerical SED.
+2. `action = plot` — plot existing `.SED`, `.Qpts`, and `.THz` files.
+3. `action = fit` — detect and fit peaks in existing SED data.
+
+`thinking` mode is a convenience that checks existing outputs and runs the
+next missing stage. MDtrace resolves relative trajectory and `basis.in` paths
+relative to the input file, so the command may be launched from another
+directory.
+
+For spectral fitting in `thinking` mode, `lorentz_fit_all_qpoint = 1` fits all
+Q points when the combined lifetime file is missing. If the parameter is
+omitted or set to `0`, MDtrace fits only the zero-based Q point selected by
+`qpoint_slice_index` when that Q-point lifetime file is missing. Existing
+output is treated as complete; use `action = fit` to force a refit after
+changing fitting parameters.
+
+## Complete single-Q refit example
+
+The following SrTiO3 input refits zero-based Q-point `23` after an earlier
+all-Q fit. It assumes that `SrTiO3.SED`, `SrTiO3.Qpts`, `SrTiO3.THz`, and the
+existing per-Q files under `Lifetime/` are already present. After replacing the
+Q-point result, `re_output_total_freq_lifetime = 1` rebuilds the combined file
+and the frequency-lifetime figure.
+
+```ini
+# ==================== Control ====================
+action      = fit       # fit existing SED data
+method      = SED
+backend     = cupy      # affects compute; fitting itself uses SciPy on CPU
+
+# ==================== MD simulation ====================
+num_atoms          = 40000
+total_num_steps    = 300000
+time_step          = 1       # fs
+output_data_stride = 15      # dump_exyz stride in gpumd_run/run.in
+
+# ==================== Input / output ====================
+trajectory_file    = ../gpumd_run/dump.xyz
+basis_lattice_file = ../structure/basis.in
+out_files_name     = SrTiO3
+
+# ==================== Structure ====================
+supercell_dim = 20 20 20
+prim_unitcell = 3.89598 0 0  0 3.89598 0  0 0 3.89598
+rescale_prim  = 1             # reconstruct the NPT-rescaled primitive cell
+
+# ==================== Q-points ====================
+num_qpaths  = 5
+q_path_name = GXMGRM
+q_path      = 0.0 0.0 0.0  0.0 0.5 0.0  0.5 0.5 0.0  0.0 0.0 0.0  0.5 0.5 0.5  0.5 0.5 0.0
+
+# ==================== Computation ====================
+num_blocks     = 5
+max_cores      = 8
+output_partial = 1            # used during compute; fit does not regenerate them
+
+# ==================== SED plot ====================
+# plot_partial_SED = Sr y     # uncomment for the Sr y component
+plot_cutoff_freq   = 25.0
+plot_interval      = 5.0
+qpoint_slice_index = 23       # zero-based index
+plot_slice         = 1
+if_show_figures    = 0        # save without opening an interactive window
+# colorbar_min     = 1e-8     # optional manual limits
+# colorbar_max     = 0.1
+
+# ==================== Spectral fitting ====================
+lorentz_fit_all_qpoint        = 0
+lorentz_fit_freq_min          = 0
+lorentz_fit_freq_max          = 25
+peak_min_significance         = 5.0
+fitting_function              = auto   # auto | lorentz | dho
+initial_guess_hwhm            = 0.01
+re_output_total_freq_lifetime = 1      # rebuild existing all-Q results
+```
+
+Run it with:
 
 ```bash
 mdtrace input.in
 ```
 
-`thinking` mode reuses existing results and runs one missing stage at a time:
-compute and plot first, then fit on a later run after the spectra can be
-inspected. Text trajectories are converted once to a `.mdtrace.nc` file beside
-the input file; compatible NetCDF trajectories are read directly in blocks. Set
-`action = compute` to recalculate even when numerical output already exists.
+For the initial all-Q fit, first use:
 
-Common commands:
-
-```bash
-mdtrace                 # input.in, then legacy input_SED.in
-mdtrace my_case.in      # explicit input file
-mdtrace -h              # command summary
+```ini
+action                           = fit
+lorentz_fit_all_qpoint           = 1
+re_output_total_freq_lifetime    = 0  # all-Q fitting rebuilds the summary automatically
 ```
+
+Inspect the figures under `Fitting-Qpoint/` before treating the collected
+linewidths as reliable.
 
 ## Compute backends
 
 | Configuration | SED execution |
 |---|---|
 | `backend = numpy`, `max_cores = 1` | Serial NumPy |
-| `backend = numpy`, `max_cores > 1` | Persistent CPU workers with shared velocity blocks |
+| `backend = numpy`, `max_cores > 1` | Persistent CPU workers sharing each velocity block |
 | `backend = cupy` | One GPU per MDtrace process |
 
-See the
-[input-parameter reference](https://mdtrace.readthedocs.io/en/latest/input_parameters.html)
-for plotting, partial SED, fitting, trajectory conversion, and sampling options.
+`num_blocks` controls spectral averaging and the amount of trajectory data
+loaded per block. The requested number of saved frames must be divisible by
+`num_blocks`.
 
 ## Main outputs
 
 | Output | Description |
 |---|---|
-| `<name>.SED` | Total SED in eV/THz |
+| `<name>.SED` | Total kinetic-energy-weighted SED in `eV/THz` |
 | `<name>.Qpts` | Reduced Q-point coordinates |
-| `<name>.THz` | Frequency axis |
+| `<name>.THz` | Ordinary-frequency axis in THz |
 | `<name>.Q_distances_and_labels` | Path distances and high-symmetry labels |
-| `<name>-SED.png` | SED dispersion plot |
-| `<name>_partial_SED/` | Optional element/Cartesian files, e.g. `<name>.SED_O_y` |
-| `LORENTZ-*.Fre_lifetime` | Current Lorentzian fit output |
+| `<name>-SED.png` | SED dispersion map |
+| `SED-<q>-qpoint.png` | Optional single-Q SED plot |
+| `<name>_partial_SED/` | Optional element/Cartesian SED files and figures |
+| `Fitting-Qpoint/Fitting-<q>-qpoint.png` | Per-Q fitted line shapes |
+| `Lifetime/Fitting-<q>-qpoint.Fre_lifetime` | Two-column fitted frequency (THz) and `tau_SED` (ps) for one Q point |
+| `Lifetime/Fitting-All-Qpoints.Fre_lifetime` | The same two columns concatenated over all Q points; no Q-index column |
+| `Fitting-Frequency-Lifetime.png` | All-Q frequency-lifetime summary |
 
-The precise HWHM/FWHM lifetime convention is being reviewed. The current
-calculation is unchanged; see [TODO.md](TODO.md) before interpreting fitted
-lifetimes quantitatively.
+For a selected partial SED component, its fitting summary is stored beside the
+partial SED figure under `<name>_partial_SED/`.
+
+## Interpreting fitted lifetimes
+
+MDtrace reports the linewidth-derived convention
+
+```text
+tau_SED = 1 / (2*pi*HWHM)
+```
+
+with HWHM in THz and `tau_SED` in ps. For isolated, underdamped peaks this is
+the conventional SED linewidth lifetime. Overlapping, incomplete, critically
+damped, and overdamped features should be interpreted qualitatively. In
+strongly anharmonic systems, always inspect the fitted line shape and compare
+only calculations with consistent trajectory length, frequency resolution,
+Q grid, and fitting settings.
+
+## Roadmap
+
+The 1.0 release deliberately focuses on a clean SED workflow. Planned work
+includes:
+
+- dynamic structure factor (DSF),
+- electron energy-loss spectroscopy (EELS),
+- optional mode-projected SED using external eigenvectors.
+
+Roadmap items are not part of the supported 1.0 command interface.
 
 ## Citation
 
@@ -145,4 +265,4 @@ If MDtrace is used for SED analysis, please cite:
    energy density](https://doi.org/10.1103/PhysRevB.81.081411),”
    *Physical Review B* **81**, 081411 (2010).
 
-For questions, contact `liangting.zj@gmail.com`.
+Questions and feedback: `liangting.zj@gmail.com`.

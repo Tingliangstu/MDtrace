@@ -38,5 +38,3 @@ Related parameters
 
 - :doc:`lorentz_fit_freq_max <lorentz_fit_freq_max>`
 - :doc:`peak_min_significance <peak_min_significance>`
-- :doc:`peak_height <peak_height>`
-- :doc:`peak_prominence <peak_prominence>`

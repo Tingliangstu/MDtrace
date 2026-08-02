@@ -25,9 +25,9 @@ The area under a spectrum therefore has units of energy:
    \Phi_f(f)[\mathrm{eV\,THz^{-1}}]\,
    df[\mathrm{THz}].
 
-Lorentzian peak amplitudes, ``peak_height``, and ``peak_prominence`` use the
-same :math:`\mathrm{eV\,THz^{-1}}` unit. ``peak_min_significance`` is instead
-a dimensionless ratio of log-SED prominence to a local robust noise estimate.
+Lorentzian peak amplitudes use the same
+:math:`\mathrm{eV\,THz^{-1}}` unit. ``peak_min_significance`` is a
+dimensionless ratio of log-SED prominence to a local robust noise estimate.
 
 Conversion from the internal quantity
 -------------------------------------
@@ -109,9 +109,6 @@ Summary
      - dimensionless
    * - Single-q spectrum and Lorentzian curves
      - :math:`\Phi_f(\mathbf q,f)` on a logarithmic y-axis
-     - :math:`\mathrm{eV\,THz^{-1}}`
-   * - ``peak_height`` and ``peak_prominence``
-     - SED intensity thresholds
      - :math:`\mathrm{eV\,THz^{-1}}`
    * - ``peak_min_significance``
      - Local log-SED prominence divided by local robust noise

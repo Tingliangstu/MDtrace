@@ -11,7 +11,7 @@ Installation check
 Shared commands
 ---------------
 
-The command interface is shared by SED and future methods:
+The supported 1.0 command interface is SED-focused:
 
 .. code-block:: bash
 
@@ -28,7 +28,7 @@ With no argument, MDtrace looks for ``input.in`` and then the legacy
    method = sed
    backend = numpy
 
-``thinking`` mode inspects existing outputs and runs missing stages.
+``thinking`` mode inspects existing SED outputs and runs missing stages.
 ``compute`` always recalculates and overwrites the main numerical output;
 ``plot`` and ``fit`` use existing results.
 
@@ -41,7 +41,7 @@ Create ``input.in``:
 
    # Common control
    action  = thinking
-   method  = sed
+   method  = sed             # supported 1.0 method
    backend = numpy
 
    # Trajectory

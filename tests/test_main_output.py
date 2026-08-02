@@ -5,10 +5,21 @@ import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 
-from mdtrace.main import _print_run_summary
+from mdtrace.main import _print_run_summary, _show_help
 
 
 class MainOutputTests(unittest.TestCase):
+    def test_help_describes_the_sed_only_1_0_scope(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stdout(output), self.assertRaises(SystemExit):
+            _show_help()
+
+        message = output.getvalue()
+        self.assertIn("method = sed", message)
+        self.assertIn("DSF and EELS are planned extensions", message)
+        self.assertNotIn("method = dsf", message)
+
     def test_run_summary_is_clear_and_aligned(self) -> None:
         params = SimpleNamespace(
             method="sed",
