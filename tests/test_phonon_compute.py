@@ -164,6 +164,36 @@ class SEDKernelTests(unittest.TestCase):
             "q = (0.5000, 0.2500, 0.0000)\n",
         )
 
+    def test_gpu_timing_places_other_work_below_the_six_row_sum(self):
+        """The complete timing reconciliation should read as one table."""
+
+        calculator = object.__new__(spectral_energy_density)
+        calculator._gpu_timings = {"trajectory": 2.0}
+        calculator._gpu_event_profiler = SimpleNamespace(
+            elapsed_seconds=lambda: {
+                "compute": 3.0,
+                "projection": 1.0,
+                "fft": 0.5,
+                "upload": 0.4,
+                "download": 0.1,
+            }
+        )
+        calculator._gpu_total_bytes = 0
+
+        output = StringIO()
+        with redirect_stdout(output):
+            calculator._print_gpu_timing_profile(total_elapsed=6.5)
+
+        lines = output.getvalue().splitlines()
+        sum_index = next(
+            index
+            for index, line in enumerate(lines)
+            if "Sum of the six rows above" in line
+        )
+        self.assertIn("5.50 s", lines[sum_index])
+        self.assertIn("Other SED work", lines[sum_index + 1])
+        self.assertIn("1.00 s", lines[sum_index + 1])
+
     def test_gpu_q_batches_make_one_result_transfer_per_block(self):
         """Split or full GPU batches must return one complete block result."""
 

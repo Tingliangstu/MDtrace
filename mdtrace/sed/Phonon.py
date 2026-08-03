@@ -480,8 +480,6 @@ class spectral_energy_density:
                 num_workers,
                 chain((first_block,), remaining_blocks),
             )
-            if self.backend == "cupy":
-                self._print_gpu_timing_profile()
         finally:
             # One shutdown replaces repeated pool startup/shutdown per block.
             if executor is not None:
@@ -491,20 +489,13 @@ class spectral_energy_density:
                 del self._gpu_basis_ids, self._gpu_qpoints
                 self._cupy.get_default_memory_pool().free_all_blocks()
                 self._cupy.get_default_pinned_memory_pool().free_all_blocks()
-                print("\n  🚀🚀 CuPy cached GPU memory has been released.")
 
         self._average_blocks_and_frequencies()
 
         elapsed = time.time() - start_time
         if self.backend == "cupy":
-            other_sed_work = max(
-                0.0,
-                elapsed - self._gpu_profiled_total,
-            )
-            print(
-                f"  {'Other SED work':<30}: "
-                f"{other_sed_work:8.2f} s"
-            )
+            self._print_gpu_timing_profile(elapsed)
+            print("\n  🚀🚀 CuPy cached GPU memory has been released.")
         print(
             "\n************ Total SED calculation time: "
             f"{elapsed:.2f} seconds. ************"
@@ -892,7 +883,7 @@ class spectral_energy_density:
             f"of {total_bytes / 1e9:.2f} GB."
         )
 
-    def _print_gpu_timing_profile(self):
+    def _print_gpu_timing_profile(self, total_elapsed):
         """Print one concise timing summary accumulated over all blocks."""
 
         event_times = self._gpu_event_profiler.elapsed_seconds()
@@ -913,7 +904,7 @@ class spectral_energy_density:
             ("GPU -> CPU result", event_times.get("download", 0.0)),
         )
         profiled_total = sum(seconds for _, seconds in stages)
-        self._gpu_profiled_total = profiled_total
+        other_sed_work = max(0.0, total_elapsed - profiled_total)
 
         print(
             "\n****************** CuPy SED timing profile "
@@ -932,6 +923,10 @@ class spectral_energy_density:
         print(
             f"  {'Sum of the six rows above':<30}: "
             f"{profiled_total:8.2f} s"
+        )
+        print(
+            f"  {'Other SED work':<30}: "
+            f"{other_sed_work:8.2f} s"
         )
         if self._gpu_total_bytes:
             print(
