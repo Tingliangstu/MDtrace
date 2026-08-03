@@ -42,27 +42,8 @@ are planned extensions; they are not part of the supported 1.1.0 workflow.
 
 ## Documentation
 
-The complete manual is hosted on
-[Read the Docs](https://mdtrace.readthedocs.io/en/latest/):
-
-- [Installation](https://mdtrace.readthedocs.io/en/latest/installation.html)
-- [Quick start](https://mdtrace.readthedocs.io/en/latest/starting.html)
-- [Input parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters.html)
-- [Common parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters/common.html)
-- [SED parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters/sed.html)
-- [SED workflow](https://mdtrace.readthedocs.io/en/latest/sed_workflow/index.html)
-- [Peak detection and line-shape fitting](https://mdtrace.readthedocs.io/en/latest/peak_detection.html)
-- [Output files](https://mdtrace.readthedocs.io/en/latest/sed_workflow/output_files.html)
-- [Units and normalization](https://mdtrace.readthedocs.io/en/latest/sed_units.html)
-- [Theory](https://mdtrace.readthedocs.io/en/latest/theory.html)
-- [Troubleshooting](https://mdtrace.readthedocs.io/en/latest/troubleshooting.html)
-- [Release notes](https://mdtrace.readthedocs.io/en/latest/release_notes.html)
-
-The documentation selector exposes two public versions after release:
-`latest` follows the `main` branch, while `1.1.0` is the frozen manual built
-from the matching Git tag. Use the tagged manual when reproducing a released
-calculation. Read the Docs may additionally expose `stable` as an alias for
-the newest stable tag; it is not a third independently maintained manual.
+The complete manual is available on
+[Read the Docs](https://mdtrace.readthedocs.io/en/latest/).
 
 ## Installation
 
