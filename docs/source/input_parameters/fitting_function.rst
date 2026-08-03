@@ -35,3 +35,6 @@ fitting_function
 
 - :doc:`initial_guess_hwhm <initial_guess_hwhm>`
 - :doc:`peak_max_hwhm <peak_max_hwhm>`
+- :doc:`peak_min_significance <peak_min_significance>`
+
+:doc:`Back to Spectral peak fitting <sed_fitting>`

@@ -1,5 +1,5 @@
-SED units and plot conventions
-==============================
+Units and normalization
+=======================
 
 Public SED quantity
 -------------------

@@ -1,5 +1,5 @@
-Automatic SED peak detection
-============================
+Peak detection and line-shape fitting
+=====================================
 
 MDtrace finds spectral peaks automatically with one user control:
 
@@ -172,6 +172,85 @@ overlapping/asymmetric peak into an isolated mode. Use ``fitting_function`` for
 the line shape and interpret strongly overlapping or incomplete peaks
 qualitatively.
 
-For the exact input syntax and all fitting parameters, see
-:doc:`input_parameters`. For the lifetime definition and fitting assumptions,
-see :doc:`theory`.
+Local fit range
+---------------
+
+Each accepted peak is fitted **separately**. MDtrace finds the lowest point of
+the seven-bin smoothed log spectrum between the peak and each neighboring
+detected peak. Those two valleys define the local fit range. For the first and
+last detected peaks, the search extends to the selected frequency boundary.
+
+Only the boundaries come from the smoothed log spectrum. The nonlinear fit
+uses every original, unsmoothed, linear-SED sample inside that range. The
+default fit has zero added background and is not a simultaneous multi-peak
+deconvolution. Consequently, a shoulder or strongly overlapping peak may not
+represent an isolated phonon mode even when the numerical fit converges.
+
+The green or grey model curve in a fit figure is drawn only over the local fit
+range. Its analytic half-maximum points can lie outside that displayed
+segment. In this case MDtrace marks the peak as incomplete and reports a
+model-extrapolated HWHM; the corresponding lifetime is qualitative.
+
+Line-shape models
+-----------------
+
+``fitting_function = lorentz`` uses the zero-background Lorentzian
+
+.. math::
+
+   \Phi_L(f)
+   =
+   \frac{A}
+   {1+\left[(f-f_0)/h\right]^2},
+
+where :math:`f_0` is the fitted peak frequency, :math:`A` is the peak height,
+and :math:`h` is the HWHM.
+
+``fitting_function = dho`` uses the velocity-spectrum damped harmonic
+oscillator (DHO)
+
+.. math::
+
+   \Phi_\mathrm{DHO}(f)
+   =
+   \frac{A\,(2h)^2 f^2}
+   {(f^2-f_0^2)^2+(2h)^2 f^2}.
+
+This is the velocity-spectrum form appropriate to the kinetic-energy-weighted
+SED calculated by MDtrace. The parameter :math:`h` is half the damping
+linewidth in ordinary-frequency units and approaches the peak HWHM in the
+weak-damping limit. MDtrace converts it with the same reported convention,
+:math:`\tau_\mathrm{SED}=1/(2\pi h)`. For an overdamped DHO, that value is a
+linewidth-derived relaxation timescale rather than a strict phonon lifetime.
+
+Automatic model selection
+-------------------------
+
+With the default ``fitting_function = auto``, MDtrace fits Lorentz and DHO to
+the same data points with the same three fitted parameters. It compares their
+small-sample Akaike information criterion (AICc), which balances residual
+error against model complexity. The model with lower AICc is preferred, with
+two safeguards:
+
+* if the candidates differ by no more than two AICc units, Lorentz is chosen;
+* if the fitted DHO has :math:`h/f_0 < 0.05`, its weak-damping line shape is
+  effectively Lorentzian, so Lorentz is chosen for the simpler interpretation.
+
+If only one candidate fit succeeds, the successful model is retained. A DHO
+is therefore not selected merely because a peak is broad; it must describe
+the same local spectrum materially better than Lorentz.
+
+Interpreting difficult peaks
+----------------------------
+
+Automatic fitting is a screening tool, not proof that every detected feature
+is an independent quasiparticle. Inspect the per-Q fit figures before using
+the combined lifetime data quantitatively. Treat incomplete, strongly
+overlapping, asymmetric, or overdamped peaks as qualitative. Longer
+trajectories improve frequency resolution; mode-projected SED can later help
+separate branches that overlap in the total spectrum.
+
+For exact syntax and defaults, open :doc:`input_parameters/sed_fitting`. For
+the lifetime convention and derivation, see :doc:`theory`.
+
+:doc:`Back to SED workflow <sed_workflow/index>`

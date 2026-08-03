@@ -2,29 +2,59 @@ MDtrace documentation
 =====================
 
 **MDtrace** traces reciprocal-space physics in molecular-dynamics
-trajectories. Its production workflow calculates phonon spectral energy
-density (SED), plots kinetic-energy-weighted dispersions, decomposes SED by
-element and Cartesian direction, and fits spectral peaks with Lorentz or DHO
-line shapes. Version 1.1.0 supports the SED workflow; dynamic structure factor
-(DSF) and electron energy-loss spectroscopy (EELS) are future extensions.
+trajectories. Version 1.1.0 provides a production workflow for calculating,
+plotting, decomposing, and fitting phonon spectral energy density (SED).
 
-Start with :doc:`starting`, then use :doc:`input_parameters` as the current
-input-file reference. The public SED unit and plot conventions are defined in
-:doc:`sed_units`; equations, normalization, and implementation logic are
-described in :doc:`theory`.
+New users should begin with :doc:`starting`. To look up an input keyword,
+open :doc:`input_parameters`; every supported parameter is listed in a
+clickable index and has its own reference page. Method concepts, files,
+units, fitting conventions, and implementation details are organized under
+the :doc:`sed_workflow/index` chapter.
+
+Choose a starting point
+-----------------------
+
+.. list-table::
+   :class: parameter-index
+   :header-rows: 1
+   :widths: 28 72
+
+   * - Goal
+     - Start here
+   * - Install MDtrace and run a first calculation
+     - :doc:`Quick start <starting>`
+   * - Find the syntax or default for one keyword
+     - :doc:`Input parameters <input_parameters>`
+   * - Understand the complete SED calculation and fitting workflow
+     - :doc:`SED workflow <sed_workflow/index>`
+   * - Diagnose an input, trajectory, fitting, or output problem
+     - :doc:`Troubleshooting <troubleshooting>`
 
 .. toctree::
    :maxdepth: 2
-   :caption: User manual
+   :caption: Getting started
 
    introduction
-   release_notes
    installation
    starting
+
+.. toctree::
+   :maxdepth: 4
+   :caption: Input parameters
+
    input_parameters
-   peak_detection
-   sed_units
-   theory
+
+.. toctree::
+   :maxdepth: 2
+   :caption: SED workflow
+
+   sed_workflow/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Help and reference
+
    troubleshooting
+   release_notes
    reference
    publications

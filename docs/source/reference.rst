@@ -1,7 +1,7 @@
-Citing mdtrace
-==============
+Citation
+========
 
-If you use **mdtrace** in your research or publications, please cite the mdtrace
+If you use **MDtrace** in your research or publications, please cite the MDtrace
 paper and the original SED method paper:
 
 [1] Ting Liang, Wenwu Jiang, Ke Xu, Hekai Bu, Zheyong Fan, Wengen Ouyang, Jianbin Xu,  
@@ -13,4 +13,4 @@ paper and the original SED method paper:
 *Physical Review B*, **81**, 081411 (2010).
 
 These references also provide the main theoretical background for the
-kinetic-energy-weighted Spectral Energy Density (SED) method used in mdtrace.
+kinetic-energy-weighted spectral energy density (SED) method used in MDtrace.

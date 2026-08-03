@@ -48,6 +48,19 @@
     border: 1px solid #e1d4ca;
     border-radius: 6px;
     overflow: hidden;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.rst-content table.parameter-index th,
+.rst-content table.parameter-index td {
+    vertical-align: top;
+    white-space: normal;
+}
+
+.rst-content table.parameter-index td:first-child,
+.rst-content table.parameter-index td:first-child a {
+    overflow-wrap: anywhere;
 }
 
 .rst-content table.parameter-index th {

@@ -46,13 +46,17 @@ The complete manual is hosted on
 [Read the Docs](https://mdtrace.readthedocs.io/en/latest/):
 
 - [Installation](https://mdtrace.readthedocs.io/en/latest/installation.html)
-- [Release notes](https://mdtrace.readthedocs.io/en/latest/release_notes.html)
 - [Quick start](https://mdtrace.readthedocs.io/en/latest/starting.html)
 - [Input parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters.html)
-- [Peak detection](https://mdtrace.readthedocs.io/en/latest/peak_detection.html)
-- [SED units](https://mdtrace.readthedocs.io/en/latest/sed_units.html)
-- [Theory and fitting conventions](https://mdtrace.readthedocs.io/en/latest/theory.html)
+- [Common parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters/common.html)
+- [SED parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters/sed.html)
+- [SED workflow](https://mdtrace.readthedocs.io/en/latest/sed_workflow/index.html)
+- [Peak detection and line-shape fitting](https://mdtrace.readthedocs.io/en/latest/peak_detection.html)
+- [Output files](https://mdtrace.readthedocs.io/en/latest/sed_workflow/output_files.html)
+- [Units and normalization](https://mdtrace.readthedocs.io/en/latest/sed_units.html)
+- [Theory](https://mdtrace.readthedocs.io/en/latest/theory.html)
 - [Troubleshooting](https://mdtrace.readthedocs.io/en/latest/troubleshooting.html)
+- [Release notes](https://mdtrace.readthedocs.io/en/latest/release_notes.html)
 
 The documentation selector exposes two public versions after release:
 `latest` follows the `main` branch, while `1.1.0` is the frozen manual built
