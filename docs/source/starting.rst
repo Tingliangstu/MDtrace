@@ -1,125 +1,172 @@
-Quick Start
+Quick start
 ===========
 
-The mdtrace workflow is a post-processing workflow. First run molecular dynamics
-to produce a trajectory with coordinates and velocities, then run mdtrace to
-compress the trajectory, construct commensurate q-points, calculate SED, plot
-the result, and optionally fit Lorentzian peaks.
+Installation check
+------------------
 
-Recommended Workflow
---------------------
+.. code-block:: bash
 
-1. **Prepare the primitive structure.**
-   Start from a POSCAR or compatible structure file for the primitive cell.
+   mdtrace -h
 
-2. **Generate the MD supercell and ``basis.in``.**
-   Use ``mdtrace.structure.generate_data.structure_maker``. The generated
-   ``basis.in`` maps every atom in the MD supercell to its unit-cell index,
-   basis index, and mass. mdtrace needs this mapping for reciprocal-space SED.
+Shared commands
+---------------
 
-3. **Run the MD simulation.**
-   Use GPUMD or LAMMPS. Equilibrate first, then run an NVE production trajectory
-   for SED.
+The supported 1.1.0 command interface is SED-focused:
 
-4. **Edit ``input_SED.in``.**
-   Set the trajectory path, number of atoms, MD step information, primitive
-   cell, supercell dimensions, and q-path.
+.. code-block:: bash
 
-5. **Compute SED.**
+   mdtrace
+   mdtrace input.in
+   mdtrace -h
 
-   .. code-block:: bash
-
-      cd example/MoS2_gpumd/SED
-      mdtrace input_SED.in
-
-   For the first run, use ``plot_SED = 0``. mdtrace writes ``.SED``, ``.Qpts``,
-   ``.THz``, and ``.Q_distances_and_labels`` files.
-
-6. **Plot SED.**
-   Set ``plot_SED = 1`` and run mdtrace again. Tune ``plot_cutoff_freq``,
-   ``plot_interval``, ``plot_color``, ``colorbar_min``, and ``colorbar_max`` for
-   a clean figure.
-
-7. **Fit lifetimes if needed.**
-   First set ``plot_slice = 1`` and choose ``qpoint_slice_index`` to inspect a
-   single q-point. Tune ``peak_height`` and ``peak_prominence``. After a good
-   single-q fit, set ``lorentz_fit_all_qpoint = 1``.
-
-GPUMD Trajectory
-----------------
-
-For GPUMD users, the production run should write an extended XYZ trajectory
-with positions and velocities. A minimal production block is:
+With no argument, MDtrace looks for ``input.in`` and then the legacy
+``input_SED.in``. The calculation is selected inside the input file:
 
 .. code-block:: text
 
-   ensemble       nve
-   dump_exyz      10     1
-   run            500000
+   action = thinking
+   method = sed
+   backend = numpy
 
-The first number after ``dump_exyz`` is the output stride in MD steps. Use the
-same value for ``output_data_stride`` in ``input_SED.in``. For details, see the
-GPUMD manual page for
-`dump_exyz <https://gpumd.org/gpumd/input_parameters/dump_exyz.html>`_.
+``thinking`` mode inspects existing SED outputs and runs missing stages.
+``compute`` always recalculates and overwrites the main numerical output;
+``plot`` and ``fit`` use existing results.
 
-In ``input_SED.in``, use:
-
-.. code-block:: text
-
-   file_format = 'gpumd'
-   dump_xyz_file = '../gpumd_run/dump.xyz'
-
-LAMMPS Trajectory
+Minimal SED input
 -----------------
 
-LAMMPS writes position and velocity trajectories separately. The required dump
-format is sorted by atom id:
+Create ``input.in``:
 
 .. code-block:: text
 
-   dump            vels  all  custom  ${dt_dump}  vels.dat  id  type  vx  vy  vz
-   dump_modify     vels  format  line "%d  %d  %0.8g  %0.8g  %0.8g"
-   dump_modify     vels  sort  id
-   dump            pos   all  custom  ${dt_dump}  pos.dat   id  type  x  y  z
-   dump_modify     pos   format  line "%d  %d  %0.8g  %0.8g  %0.8g"
-   dump_modify     pos   sort  id
+   # Common control
+   action  = thinking
+   method  = sed             # supported 1.1.0 method
+   backend = numpy
 
-   run             2097152
+   # Trajectory
+   trajectory_file    = ../gpumd_run/movie.nc
+   out_files_name     = CNT
+   time_step          = 1.0
+   output_data_stride = 10
+   num_blocks         = 5
+   max_cores          = 8
 
-In ``input_SED.in``, use:
+   # SED structure
+   num_atoms          = 17920
+   total_num_steps    = 500000
+   basis_lattice_file = ../structure/basis.in
+   supercell_dim      = 1 1 160
+   prim_unitcell      = 237.433 0 0  0 237.433 0  0 0 2.463
+   rescale_prim       = 1
+
+   # SED Q path
+   num_qpaths  = 1
+   q_path_name = GA
+   q_path      = 0 0 0  0 0 1/2
+
+   # Plot
+   plot_cutoff_freq   = 50
+   plot_interval      = 10
+   plot_slice         = 1
+   qpoint_slice_index = 0
+   if_show_figures    = 0
+
+Run:
+
+.. code-block:: bash
+
+   mdtrace input.in
+
+Trajectory input
+----------------
+
+``trajectory_file`` can point to:
+
+- GPUMD extended XYZ containing positions and velocities,
+- one LAMMPS custom dump containing atom IDs, positions, and velocities,
+- compatible GPUMD, LAMMPS, or MDtrace NetCDF.
+
+Text trajectories are detected automatically. By default they are streamed
+once into a ``.mdtrace.nc`` cache beside the input file and reused; direct
+streaming is also available. NetCDF trajectories are read directly, and only
+one requested block is loaded at a time unless prefetch is enabled.
+
+For a text trajectory, choose whether to create that reusable cache or consume
+the original file directly:
 
 .. code-block:: text
 
-   file_format = 'lammps'
-   pos_file = '../lammps_run/pos.dat'
-   vels_file = '../lammps_run/vels.dat'
-   lammps_unit = 'metal'
+   trajectory_read_mode = cache   # default: create/reuse .mdtrace.nc
+   # trajectory_read_mode = direct  # no intermediate NetCDF file
 
-Use ``lammps_unit = 'metal'`` for velocities in Angstrom/ps and
-``lammps_unit = 'real'`` for velocities in Angstrom/fs.
+``direct`` reads the requested GPUMD XYZ or LAMMPS frames sequentially once;
+it never restarts the text scan for each averaging block. Native NetCDF input
+is always read directly, regardless of this setting.
 
-What to Check Before Running mdtrace
-------------------------------------
+Optional one-block prefetch works for direct text, cached NetCDF, and native
+NetCDF:
 
-- ``num_atoms`` equals the number of atoms in the trajectory and the maximum
-  atom id in ``basis.in``.
-- ``total_num_steps``, ``time_step``, and ``output_data_stride`` match the MD
-  production run.
-- ``prim_unitcell`` and ``supercell_dim`` reconstruct the MD supercell.
-- ``basis_lattice_file`` points to the correct ``basis.in`` file.
-- ``q_path_name`` has ``num_qpaths + 1`` labels.
-- ``q_path`` contains ``num_qpaths + 1`` reduced-coordinate triples.
-- The trajectory contains coordinates and velocities for every saved frame.
+.. code-block:: text
 
-Recommended First Examples
---------------------------
+   trajectory_prefetch = 1
 
-Start with an existing example before applying mdtrace to a new system:
+It lets one background thread prepare the next trajectory block while the
+current block is used for SED computation. The tradeoff is enough additional
+CPU memory for one raw block of positions and velocities. It is enabled by
+default; set it to ``0`` when memory is limited or benchmarking shows no
+benefit.
 
-- 1D: `CNT <https://github.com/Tingliangstu/mdtrace/tree/main/example/CNT>`_
-- 2D: `Graphene <https://github.com/Tingliangstu/mdtrace/tree/main/example/In_plane_graphene_gpumd>`_
-  or `MoS₂ <https://github.com/Tingliangstu/mdtrace/tree/main/example/MoS2_gpumd>`_
-- 3D: `Silicon <https://github.com/Tingliangstu/mdtrace/tree/main/example/Silicon_primitive_gpumd>`_
+A suitable LAMMPS dump is:
 
-If one of these examples reproduces the expected SED image, your installation
-and workflow are ready for a custom system.
+.. code-block:: text
+
+   dump mdtrace all custom ${dump_stride} trajectory.dump id type x y z vx vy vz
+   dump_modify mdtrace sort id
+
+Set ``lammps_unit = metal`` for Angstrom/ps or ``real`` for Angstrom/fs.
+
+Basis mapping
+-------------
+
+``basis.in`` maps every trajectory atom to its repeated unit cell and basis
+atom:
+
+.. code-block:: text
+
+   # MDtrace basis mapping
+   atoms_ids unitcell_index basis_index mass_types
+   1  1  1  12.011000
+   2  1  2  12.011000
+   3  2  1  12.011000
+   4  2  2  12.011000
+
+Atom order, atom IDs, masses, and the number of atoms must agree with the
+trajectory. Each basis index must occur exactly once per repeated unit cell.
+
+Recommended workflow
+--------------------
+
+1. Equilibrate the structure and write a production trajectory containing
+   positions, velocities, and cell information.
+2. Prepare ``basis.in`` for the same atom order.
+3. Choose a commensurate Q path in reduced primitive reciprocal coordinates.
+4. Compute the SED with ``action = compute``.
+5. Inspect the dispersion and several single-Q slices.
+6. Tune peak detection and fitting settings, then use ``action = fit``.
+
+Backends
+--------
+
+- ``backend = numpy`` and ``max_cores = 1``: serial NumPy.
+- ``backend = numpy`` and ``max_cores > 1``: persistent CPU workers using one
+  shared velocity block.
+- ``backend = cupy``: one GPU; ``max_cores`` is not used by the SED kernel.
+
+For the optional GPU backend, install the wheel matching the CUDA Toolkit:
+
+.. code-block:: bash
+
+   python -m pip install cupy-cuda12x
+   # or
+   python -m pip install cupy-cuda13x

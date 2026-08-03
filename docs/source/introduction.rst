@@ -1,20 +1,24 @@
 Introduction
 ============
 
-The **Spectral Energy Density (SED)** technique employed by **mdtrace** is a method that can directly 
-predict phonon dispersion relations and their corresponding lifetimes from atomic velocities 
-obtained in large-scale molecular dynamics (MD) simulations. 
-SED represents the intensity of the kinetic energy distribution of a system across different phonon modes, 
-effectively providing a dispersion weighted by the kinetic energy carried by each phonon.
+MDtrace extracts reciprocal-space observables from molecular-dynamics
+trajectories. Its current production workflow calculates phonon spectral energy
+density (SED), which shows how kinetic energy is distributed over wave vector
+and frequency.
 
-**mdtrace** can read and process large-scale simulation trajectories from both `LAMMPS <https://www.lammps.org/#gsc.tab=0>`_ and `GPUMD <https://gpumd.org/>`_,
-enhancing its versatility and applicability in various research scenarios.
+The SED workflow can:
 
-Main Features
--------------
-- **SED Visualization**: Generates high-quality SED images for detailed analysis of phonon dispersion and lifetimes.
-- **Lorentzian Fitting**: Utilizes Lorentzian fitting to accurately model SED peaks.
-- **Comprehensive Peak Fitting**: Capable of fitting all peaks simultaneously to output phonon lifetimes or fitting them individually as needed.
-- **User-Friendly Interface**: Designed for simplicity and ease of use.
-- **Qualitative Phonon Lifetimes**: Provides qualitative insights into phonon lifetimes based on SED analysis.
-- **Parallel Processing**: Supports parallel execution to accelerate SED computations and obtain results quickly.
+- construct exact Q points commensurate with a finite MD supercell,
+- calculate total or element/direction-resolved SED,
+- use serial NumPy, shared-memory multiprocessing, or optional CuPy,
+- plot phonon dispersions and individual Q-point spectra,
+- fit Lorentz or velocity-DHO peak centers and widths.
+
+MDtrace reads compatible NetCDF trajectories directly. GPUMD extended XYZ and
+one-file LAMMPS custom dumps are detected automatically and can either be
+streamed directly once during SED computation or converted to a reusable
+NetCDF cache. Optional one-block background prefetch is shared by both paths.
+
+Version 1.1.0 supports SED calculation, plotting, and fitting. Dynamic structure
+factor (DSF) and electron energy-loss spectroscopy (EELS) are planned future
+extensions and are not part of the supported 1.1.0 workflow.

@@ -13,14 +13,6 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ***************************
-                      liangting.zj@gmail.com
-************************ 2021/4/22 23:03:21 *********************
-'''
-
 import numpy as np
 import sys
 from mdtrace.structure import read_structure

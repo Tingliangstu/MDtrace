@@ -16,8 +16,8 @@
 
 """mdtrace — Molecular Dynamics Trace.
 
-Trace the physics inside your MD trajectory:
-phonon SED, dynamic structure factors, EELS, and more.
+Trace reciprocal-space physics inside molecular-dynamics trajectories.
+The supported 1.1.0 workflow is phonon spectral energy density (SED).
 """
 
 from mdtrace.version import __version__  # noqa F401

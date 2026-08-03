@@ -17,13 +17,12 @@
 """
 mdtrace DSF — minimal dynamic structure factor computation.
 
-Pure NumPy implementation. No external dependencies beyond numpy + h5py.
+Pure NumPy implementation backed by the shared NetCDF trajectory reader.
 Step 1: single-crystal coherent neutron S(Q,ω) via direct estimator.
 """
 import numpy as np
-import h5py
-import os
 
+from mdtrace.io.netcdf import NetCDFReader
 
 # ── neutron scattering data (Sears 1992) ────────────────────────
 
@@ -43,18 +42,17 @@ def _get_neutron_weights(atom_types):
 # ── main entry point ────────────────────────────────────────────
 
 def compute_dsf(params):
-    """Compute neutron coherent DSF from HDF5 trajectory.
+    """Compute neutron coherent DSF from the prepared trajectory.
 
     Parameters
     ----------
     params : MDTraceParams
         Parsed input parameters.  Required fields:
-        - output_hdf5       : path to compressed HDF5
+        - trajectory_path   : path to the prepared NetCDF trajectory
         - out_files_name    : output prefix
         - dsf_qpoints       : Q-points in fractional coords (flat list)
         - atom_types        : list of atom type labels
-        - dsf_num_blocks    : number of blocks for SEM
-        - num_splits        : number of trajectory splits (legacy)
+        - num_blocks        : number of blocks for averaging and SEM
         - time_step         : MD time step (fs)
         - output_data_stride: data output stride
         - prim_unitcell     : 3×3 primitive cell (Angstrom)
@@ -68,32 +66,17 @@ def compute_dsf(params):
         sqw_sem     : S(Q,ω) standard error
         q_frac      : input Q-points in fractional coords
     """
-    # ── load positions from HDF5 ──
-    hdf5_path = params.output_hdf5
-    if not os.path.exists(hdf5_path):
-        raise FileNotFoundError(
-            f"HDF5 file '{hdf5_path}' not found. Run with action=thinking first."
-        )
-
-    with h5py.File(hdf5_path, "r") as f:
-        positions = f["positions"][:]  # (frames, atoms, 3) in Angstrom
-        if "atom_types" in f:
-            h5_atom_types = [t.decode() if isinstance(t, bytes) else t
-                           for t in f["atom_types"][:]]
-        else:
-            h5_atom_types = None
-
-    n_frames, n_atoms, _ = positions.shape
-    print(f"  Loaded positions: {n_frames} frames × {n_atoms} atoms")
+    with NetCDFReader(params.trajectory_path) as trajectory:
+        trajectory.require("positions")
+        n_frames = trajectory.info.n_frames
+        n_atoms = trajectory.info.n_atoms
+    print(f"  Trajectory: {n_frames} frames × {n_atoms} atoms")
 
     # ── resolve atom types ──
     atom_types = params.atom_types
-    if atom_types is None and h5_atom_types is not None:
-        atom_types = h5_atom_types
-        print(f"  Using atom types from HDF5: {atom_types}")
-    elif atom_types is None:
+    if atom_types is None:
         raise ValueError(
-            "atom_types not set in input.in and not found in HDF5.\n"
+            "atom_types not set in input.in.\n"
             "Add:  atom_types = Si  (or Mo S S, etc.)"
         )
 
@@ -154,12 +137,12 @@ def compute_dsf(params):
         print(f"    [{i}] frac: {qf}  →  cart: [{qc[0]:.4f}, {qc[1]:.4f}, {qc[2]:.4f}] 1/Å")
 
     # ── frequency grid ──
-    block_size = n_frames // params.dsf_num_blocks
+    block_size = n_frames // params.num_blocks
     if block_size < 2:
         block_size = n_frames
         num_blocks = 1
     else:
-        num_blocks = params.dsf_num_blocks
+        num_blocks = params.num_blocks
 
     dt_sec = params.time_step * params.output_data_stride / 1e15  # fs → s
     freq_hz = np.fft.fftfreq(block_size, dt_sec)
@@ -169,27 +152,28 @@ def compute_dsf(params):
 
     # ── block-averaged DSF ──
     all_blocks = []
-    for block_idx in range(num_blocks):
-        start = block_idx * block_size
-        end = start + block_size
-        if end > n_frames:
-            break
-        block = positions[start:end]
+    with NetCDFReader(params.trajectory_path) as trajectory:
+        for block_idx in range(num_blocks):
+            start = block_idx * block_size
+            end = start + block_size
+            if end > n_frames:
+                break
+            block = trajectory.read_positions(slice(start, end))
 
-        sqw_block = np.zeros((n_q, len(freq_thz)))
-        for iq, q_vec in enumerate(q_cart):
-            # ρ(Q, t) = Σ w_a exp(i Q·r_a(t))
-            phase = np.exp(1j * np.dot(block, q_vec))  # (T, N)
-            rho = np.sum(weights[None, :] * phase, axis=1)  # (T,)
+            sqw_block = np.zeros((n_q, len(freq_thz)))
+            for iq, q_vec in enumerate(q_cart):
+                # ρ(Q, t) = Σ w_a exp(i Q·r_a(t))
+                phase = np.exp(1j * np.dot(block, q_vec))  # (T, N)
+                rho = np.sum(weights[None, :] * phase, axis=1)  # (T,)
 
-            # FFT with forward normalization (1/√N convention)
-            rho_fft = np.fft.fft(rho, norm="forward")  # (T,)
-            spectrum = np.abs(rho_fft[pos_mask]) ** 2
+                # FFT with forward normalization (1/√N convention)
+                rho_fft = np.fft.fft(rho, norm="forward")  # (T,)
+                spectrum = np.abs(rho_fft[pos_mask]) ** 2
 
-            # normalize: divide by N * N_t
-            sqw_block[iq] = spectrum / (n_atoms * block_size)
+                # normalize: divide by N * N_t
+                sqw_block[iq] = spectrum / (n_atoms * block_size)
 
-        all_blocks.append(sqw_block)
+            all_blocks.append(sqw_block)
 
     all_blocks = np.array(all_blocks)  # (num_blocks, n_q, n_freq)
     sqw_mean = np.mean(all_blocks, axis=0)

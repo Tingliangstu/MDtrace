@@ -13,25 +13,24 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ***************************
-        liangting.zj@gmail.com --- Refer from Ty Sterling's script
-************************ 2021/4/26 23:03:21 *********************
-'''
 # Python modules
-import os
-import numpy as np
-import h5py
-from fractions import Fraction
 import math
-import warnings
+import os
+from fractions import Fraction
+
+import numpy as np
+
 from mdtrace.structure import generate_data
 
 
 class BZ_methods(object):
-    def __init__(self, params, box_info=True, qpoints_info=True):
+    def __init__(
+        self,
+        params,
+        box_in_traj,
+        box_info=True,
+        qpoints_info=True,
+    ):
 
         self.box_info = box_info
         self.qpoints_info = qpoints_info
@@ -42,7 +41,7 @@ class BZ_methods(object):
         self.cell_ref_ids = self.cell_ref_ids.reshape(len(self.cell_ref_ids))
 
         # Compare lattice cell
-        self._compare_cell(params)
+        self._compare_cell(params, box_in_traj)
 
         ############## Construct Brillouin zone ################
         # calculate direct lattice vectors (for orthogonal or triclinic lattice vectors)
@@ -97,11 +96,10 @@ class BZ_methods(object):
 
         return primitive_cell
 
-    def _compare_cell(self, params):
+    def _compare_cell(self, params, box_in_traj):
 
         ########## Output simulation cell informations ############
-        with h5py.File(params.output_hdf5, 'r') as database:
-            box_in_traj = database['box'][()]
+        box_in_traj = np.asarray(box_in_traj, dtype=float)
 
         # Here is important, means that the supercells used for MD simulation can be different from primitive cells.
         self.supercell = box_in_traj
@@ -109,7 +107,11 @@ class BZ_methods(object):
         expected_prim_unitcell = params.prim_unitcell
         expected_box = generate_data.structure_maker.calculate_supercell_matrix(expected_prim_unitcell,
                                                                                 params.supercell_dim)
-        if str(params.file_format).lower() == 'lammps':
+        if params.source_format in {
+            'lammps_dump',
+            'lammps_netcdf',
+            'gpumd_netcdf',
+        }:
             expected_box = generate_data.structure_maker.calculate_restricted_cell(expected_box)
             expected_prim_unitcell = generate_data.structure_maker.calculate_restricted_cell(expected_prim_unitcell)
 

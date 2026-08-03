@@ -1,29 +1,30 @@
-.. mdtrace documentation master file, created by
-   sphinx-quickstart on Sun Sep 22 01:30:31 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+MDtrace documentation
+=====================
 
-Welcome to mdtrace's documentation!
-===================================
+**MDtrace** traces reciprocal-space physics in molecular-dynamics
+trajectories. Its production workflow calculates phonon spectral energy
+density (SED), plots kinetic-energy-weighted dispersions, decomposes SED by
+element and Cartesian direction, and fits spectral peaks with Lorentz or DHO
+line shapes. Version 1.1.0 supports the SED workflow; dynamic structure factor
+(DSF) and electron energy-loss spectroscopy (EELS) are future extensions.
 
-**mdtrace** is a Python package for calculating kinetic-energy-weighted phonon
-spectral energy density (SED) from molecular dynamics trajectories. It can read
-trajectories from GPUMD and LAMMPS, construct commensurate q-points, plot SED
-maps, and fit Lorentzian peaks to estimate phonon lifetimes.
+Start with :doc:`starting`, then use :doc:`input_parameters` as the current
+input-file reference. The public SED unit and plot conventions are defined in
+:doc:`sed_units`; equations, normalization, and implementation logic are
+described in :doc:`theory`.
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Table of contents
+   :maxdepth: 2
+   :caption: User manual
 
    introduction
-   requirements
+   release_notes
    installation
    starting
    input_parameters
-   tutorials
-   example
+   peak_detection
+   sed_units
    theory
-   tips
-   publications
-   reference
    troubleshooting
+   reference
+   publications

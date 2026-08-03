@@ -13,34 +13,75 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ****************************
-        liangting.zj@gmail.com --- Refer from Ty Sterling's script
-************************ 2021/5/15 23:03:21 **********************
-'''
-
 import os
 import numpy as np
+
+from mdtrace.sed import OutputPaths
+
+
+SED_HEADER = (
+    "MDtrace spectral energy density; unit: eV/THz; "
+    "each column corresponds to one q-point "
+    "(same order as the .Qpts file)"
+)
+
+def _partial_sed_path(params, element, direction):
+    """Return the element-labelled path for one Cartesian component."""
+
+    partial_dir = params.out_files_name + '_partial_SED'
+    output_name = os.path.basename(
+        os.path.normpath(params.out_files_name)
+    )
+    filename = (
+        f"{output_name}.SED_{element}_{direction}"
+    )
+    return os.path.join(partial_dir, filename)
+
 
 def write_output(phonons, params, BZ_lattice_info):
     output_partial = getattr(params, 'output_partial', 0)
     if output_partial:
-        # Overall SED = sum over atom type and direction
+        # Overall SED = sum over element and direction.
         sed_total = phonons.sed_avg.sum(axis=(-2, -1))
-        np.savetxt(params.out_files_name + '.SED', sed_total)
+        np.savetxt(
+            params.out_files_name + '.SED',
+            sed_total,
+            header=SED_HEADER,
+        )
 
         partial_dir = params.out_files_name + '_partial_SED'
         os.makedirs(partial_dir, exist_ok=True)
         dir_labels = ['x', 'y', 'z']
+        output_name = os.path.basename(
+            os.path.normpath(params.out_files_name)
+        )
 
-        for t_idx in range(phonons.sed_avg.shape[2]):
+        for t_idx, element in enumerate(phonons.type_symbols):
             for d_idx, d_lab in enumerate(dir_labels):
-                out_path = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{t_idx+1}_{d_lab}")
-                np.savetxt(out_path, phonons.sed_avg[:, :, t_idx, d_idx])
+                # Remove only the corresponding pre-1.0 type-labelled file.
+                legacy_path = os.path.join(
+                    partial_dir,
+                    f"{output_name}.SED_type{t_idx + 1}_{d_lab}",
+                )
+                if os.path.isfile(legacy_path):
+                    os.remove(legacy_path)
+
+                out_path = _partial_sed_path(
+                    params,
+                    element,
+                    d_lab,
+                )
+                np.savetxt(
+                    out_path,
+                    phonons.sed_avg[:, :, t_idx, d_idx],
+                    header=SED_HEADER,
+                )
     else:
-        np.savetxt(params.out_files_name + '.SED', phonons.sed_avg)
+        np.savetxt(
+            params.out_files_name + '.SED',
+            phonons.sed_avg,
+            header=SED_HEADER,
+        )
 
     np.savetxt(params.out_files_name + '.Qpts', BZ_lattice_info.reduced_qpoints, fmt='%.8f')
     np.savetxt(params.out_files_name + '.THz', phonons.freq_fft, fmt='%.8f')
@@ -61,30 +102,30 @@ class load_data(object):
 
         if getattr(params, 'plot_partial_SED', 0):
 
-            partial_dir = params.out_files_name + '_partial_SED'
-            type_idx = params.plot_partial_type
-
-            if type_idx is None or type_idx < 0:
-                raise ValueError('\n*************** plot_partial_SED type index is invalid ***************')
+            element = params.plot_partial_element
 
             if params.plot_partial_dir is None:
-                # Sum x/y/z for the given type
-                file_x = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_x")
-                file_y = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_y")
-                file_z = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_z")
-                if not (os.path.exists(file_x) and os.path.exists(file_y) and os.path.exists(file_z)):
+                # Sum x/y/z for the requested element.
+                file_x = _partial_sed_path(params, element, 'x')
+                file_y = _partial_sed_path(params, element, 'y')
+                file_z = _partial_sed_path(params, element, 'z')
+                if not all(
+                    os.path.exists(path)
+                    for path in (file_x, file_y, file_z)
+                ):
                     raise FileNotFoundError(
-                        '\n*************** plot_partial_SED type index is out of range or files missing ***************')
+                        f"partial SED files for element '{element}' are missing")
                 sed_x = np.loadtxt(file_x)
                 sed_y = np.loadtxt(file_y)
                 sed_z = np.loadtxt(file_z)
                 self.sed_avg = sed_x + sed_y + sed_z
             else:
                 d = params.plot_partial_dir
-                file_d = os.path.join(partial_dir, f"{params.out_files_name}.SED_type{type_idx+1}_{d}")
+                file_d = _partial_sed_path(params, element, d)
                 if not os.path.exists(file_d):
                     raise FileNotFoundError(
-                        '\n*************** plot_partial_SED type index is out of range or file missing ***************')
+                        f"partial SED file for element '{element}' "
+                        f"and direction '{d}' is missing")
                 self.sed_avg = np.loadtxt(file_d)
 
         else:
@@ -106,69 +147,110 @@ class load_data(object):
                     distance, label = line.split(maxsplit=1)
                     self.q_labels[float(distance)] = label.strip()
 
-def write_lorentz(lorentz, params):
-    np.savetxt(params.out_files_name + '_LORENTZ-{}.params'.format(params.q_slice_index), lorentz.popt)
-    np.savetxt(params.out_files_name + '_LORENTZ-{}.error'.format(params.q_slice_index), lorentz.pcov)
-    print('**************** The specific parameters of the fit are successfully written ***************')
+
+def hwhm_to_lifetime_ps(hwhm):
+    """Convert ordinary-frequency HWHM in THz to lifetime in ps."""
+
+    hwhm = np.asarray(hwhm, dtype=float)
+    lifetime = np.full(hwhm.shape, np.nan, dtype=float)
+    valid = np.isfinite(hwhm) & (hwhm > 0)
+    lifetime[valid] = 1.0 / (2.0 * np.pi * hwhm[valid])
+    return lifetime
+
 
 def write_phonon_lifetime(lorentz, params):
+    """Write one Q-point's frequency and linewidth-derived lifetime."""
 
-    out_lifetime_file = 'Generated by mdtrace, Email: liangting.zj@gmail.com\n'
-    out_lifetime_file += "First_line: Frequency (THz)  Second_line: Phonon Lifetime (ps)\n"
+    output_file = OutputPaths.qpoint_lifetime_data(
+        params.qpoint_slice_index
+    )
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_lines = [
+        "Generated by mdtrace, Email: liangting.zj@gmail.com",
+        (
+            "Frequency (THz)  linewidth-derived SED lifetime (ps); "
+            "tau_SED = 1/(2*pi*HWHM_THz)"
+        ),
+    ]
 
-    for i in range(len(lorentz.popt)):
-
-        if lorentz.popt[i][2] == 0:  # don't output fitting fail frequency
+    lifetimes = hwhm_to_lifetime_ps(lorentz.popt[:, 2])
+    models = getattr(
+        lorentz,
+        'fit_models',
+        np.full(len(lorentz.popt), 'lorentz', dtype=object),
+    )
+    for fit_parameters, lifetime, model in zip(
+        lorentz.popt,
+        lifetimes,
+        models,
+    ):
+        if not np.isfinite(lifetime):  # don't output failed fits
             continue
+        output_lines.append(
+            f"{fit_parameters[0]:.6f} {lifetime:.8f}"
+        )
 
-        out_lifetime_file += '{0:.6f} {1:.8f} \n'.format(lorentz.popt[i][0], 1/(2 * np.pi * lorentz.popt[i][2]))
-        # write the file
+    output_file.write_text(
+        "\n".join(output_lines) + "\n",
+        encoding="utf-8",
+    )
+    return str(output_file)
 
-    f = open('LORENTZ-{}-th-Qpoints.Fre_lifetime'.format(params.q_slice_index), 'w')
-    f.write(out_lifetime_file)
-    f.close()
 
-    print('************** LORENTZ-{}-th Qpoints.Fre_lifetime is written successfully **************'.format(params.q_slice_index))
+def read_lifetime_data(path):
+    """Read a two-column MDtrace frequency-lifetime data file."""
+
+    with open(path, "r", encoding="utf-8") as stream:
+        data_lines = [
+            line.strip() for line in stream.readlines()[2:] if line.strip()
+        ]
+    if not data_lines:
+        return np.empty(0, dtype=float), np.empty(0, dtype=float)
+
+    values = np.atleast_2d(np.loadtxt(data_lines, dtype=float))
+    if values.shape[1] != 2:
+        raise ValueError(f"invalid frequency-lifetime data in {path}")
+    return values[:, 0], values[:, 1]
+
 
 def deal_total_fre_lifetime(params, total_qpoints):
+    """Combine all Q-point frequency-lifetime files into one data file."""
 
-    out_lifetime_file = 'Generated by mdtrace, Email: liangting.zj@gmail.com\n'
-    out_lifetime_file += "First_line: Frequency (THz)  Second_line: Phonon Lifetime (ps)\n"
-
-    total_num_Fre_lifetime = 0
+    output_lines = [
+        "Generated by mdtrace, Email: liangting.zj@gmail.com",
+        (
+            "Frequency (THz)  linewidth-derived SED lifetime (ps); "
+            "tau_SED = 1/(2*pi*HWHM_THz)"
+        ),
+    ]
+    total_num_fre_lifetime = 0
 
     for i in range(total_qpoints):
-        load_file_name = 'LORENTZ-{}-th-Qpoints.Fre_lifetime'.format(i)
+        load_file_name = OutputPaths.qpoint_lifetime_data(i)
         try:
-            with open(load_file_name, 'r') as f:
-                lines = [line.strip() for line in f.readlines()]
-                # Check if the file only contains the header lines
-                if len(lines) <= 2 or all(line == '' for line in lines[2:]):
-                    print(f'\nWarning: {load_file_name} does not contain fitted phonon lifetimes, skipping.')
-                    continue
-
-            # Load the numerical data
-            Freq, lifetime = np.loadtxt(load_file_name, skiprows=2, unpack=True)
-
-            if isinstance(Freq, np.float64):
-                Freq = np.array([Freq])
-                lifetime = np.array([lifetime])
-
-            for j in range(len(Freq)):
-                out_lifetime_file += '{0:.6f} {1:.8f}\n'.format(Freq[j], lifetime[j])
-                total_num_Fre_lifetime += 1
-
-        except:
+            frequency, lifetime = read_lifetime_data(load_file_name)
+        except OSError as error:
             raise FileNotFoundError(
-                '\n*************** File LORENTZ-{}-th-Qpoints.Fre_lifetime reading ERROR ***************'.format(i))
+                f"cannot read Q-point lifetime data: {load_file_name}"
+            ) from error
 
-    f = open('TOTAL-LORENTZ-Qpoints.Fre_lifetime', 'w')
-    f.write(out_lifetime_file)
-    f.close()
+        if not frequency.size:
+            print(
+                f"\n  Warning: {load_file_name} contains no fitted "
+                "lifetimes; skipping."
+            )
+            continue
 
-    if not params.re_output_total_freq_lifetime:
-        print('\n**** TOTAL-LORENTZ-Qpoints.Fre_lifetime is written successfully (Total {} points) *****'
-                                                                                    .format(total_num_Fre_lifetime))
-    else:
-        print('\n*** TOTAL-LORENTZ-Qpoints.Fre_lifetime is Re-written successfully (Total {} points) ***'
-              .format(total_num_Fre_lifetime))
+        output_lines.extend(
+            f"{freq:.6f} {tau:.8f}"
+            for freq, tau in zip(frequency, lifetime)
+        )
+        total_num_fre_lifetime += frequency.size
+
+    output_file = OutputPaths.combined_lifetime_data()
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(
+        "\n".join(output_lines) + "\n",
+        encoding="utf-8",
+    )
+    return str(output_file), int(total_num_fre_lifetime)

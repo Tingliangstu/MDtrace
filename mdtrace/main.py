@@ -31,7 +31,7 @@ from mdtrace.pipeline import run as run_pipeline
 _LOGO_LINES = (
     r" __  __   ____    _____   ____       _       ____   _____",
     r"|  \/  | |  _ \  |_   _| |  _ \     / \     / ___| | ____|",
-    r"| |\/| | | | | |   | |   | |_) |   / _ \   | |     |  _|",
+    r"| |\/| | | | | |   | |   | |_) |   / _ \   | |     | |",
     r"| |  | | | |_| |   | |   |  _ <   / ___ \  | |___  | |___",
     r"|_|  |_| |____/    |_|   |_| \_\ /_/   \_\  \____| |_____|",
 )
@@ -58,7 +58,29 @@ TAGLINE = "\n".join(
 
 def _print_banner():
     print(f"\n{LOGO}\n\n{TAGLINE}\n")
-    print(f"{_BANNER_INDENT}{'=' * _BANNER_WIDTH}")
+
+
+def _print_run_summary(input_file, params):
+    """Print one aligned panel describing the task about to run."""
+
+    if params.backend == "cupy":
+        backend = "CuPy (single GPU)"
+    elif params.max_cores == 1:
+        backend = "NumPy (1 CPU process)"
+    else:
+        backend = f"NumPy (up to {params.max_cores} CPU processes)"
+
+    border = f"{_BANNER_INDENT}{'=' * _BANNER_WIDTH}"
+    divider = f"{_BANNER_INDENT}{'-' * _BANNER_WIDTH}"
+    print(border)
+    print(f"{_BANNER_INDENT}🚀 Starting MDtrace task")
+    print(divider)
+    print(f"{_BANNER_INDENT}Input   : {input_file}")
+    print(f"{_BANNER_INDENT}Method  : {params.method.upper()}")
+    print(f"{_BANNER_INDENT}Action  : {params.action}")
+    print(f"{_BANNER_INDENT}Backend : {backend}")
+    print(f"{_BANNER_INDENT}Output  : {params.out_files_name}")
+    print(f"{border}\n")
 
 
 def _show_help():
@@ -69,11 +91,13 @@ USAGE:
     mdtrace -h
 
 DESCRIPTION:
-    mdtrace extracts multiple physical observables from a single MD trajectory:
+    MDtrace 1.1.0 computes phonon spectral energy density (SED), plots
+    reciprocal-space spectra, and fits spectral peaks:
 
-      method = sed   →  Phonon spectral energy density + Lorentzian fitting
-      method = dsf   →  Dynamic structure factor S(Q,ω) (neutron / X-ray)
-      method = eels  →  Electron energy-loss spectra  [coming soon]
+      method = sed   →  SED compute, plot, and Lorentz/DHO fitting
+
+    DSF and EELS are planned extensions and are not part of the
+    supported 1.1.0 workflow.
 
     Supported MD formats: GPUMD, LAMMPS.
 
@@ -82,24 +106,23 @@ DESCRIPTION:
 ── Control ───────────────────────────────────────────────────────
 
     action = thinking      # auto-detect progress (recommended!)
-    action = compute       # force re-compute
-    action = plot          # force re-plot
-    action = fit           # force re-fit (SED only)
+    action = compute       # always recompute the main numerical output
+    action = plot          # plot existing numerical output
+    action = fit           # fit existing SED output
 
-    method = sed           # phonon SED
-    method = dsf           # dynamic structure factor
+    method = sed           # supported 1.1.0 method
 
     backend = numpy        # CPU (default)
-    backend = cupy         # GPU  [coming soon]
+    backend = cupy         # GPU (optional CuPy installation)
 
 ── thinking mode ──────────────────────────────────────────────────
 
     thinking mode automatically detects what has been done and
     runs the next missing step:
 
-      No HDF5?         → compress + compute + plot + fit
-      No .SED / .dsf?  → compute + plot + fit
-      No fit data?     → plot + fit
+      Text trajectory? → direct stream or reusable .mdtrace.nc cache
+      No .SED data?    → compute + plot
+      SED exists?      → plot if needed, then fit on the next run
       All done?        → reports complete, suggests re-run actions
 
     Write your input.in once, then just run:
@@ -113,17 +136,15 @@ DESCRIPTION:
     # SED computation
     mdtrace input.in       # method=sed, action=thinking
 
-    # DSF computation
-    mdtrace input.in       # method=dsf, action=thinking
-
-    # Force re-compute
+    # Run the compute stage
     mdtrace input.in       # action=compute
+
+    # Fit existing SED output
+    mdtrace input.in       # action=fit
 
 REFERENCES:
     [1] Liang et al., J. Appl. Phys. 138, 075101 (2025).  [original pySED / SED]
     [2] Thomas et al., Phys. Rev. B 81, 081411 (2010).    [SED method]
-    [3] Van Hove, Phys. Rev. 95, 249 (1954).              [DSF theory]
-    [4] Squires, Intro to Thermal Neutron Scattering (2012).
 """)
     sys.exit(0)
 
@@ -161,10 +182,10 @@ def main():
         sys.exit(1)
 
     _print_banner()
-    print(f"  Input: {input_file}\n")
 
     # ── parse ──
     params = read_input(input_file)
+    _print_run_summary(input_file, params)
 
     # ── go ──
     run_pipeline(params)

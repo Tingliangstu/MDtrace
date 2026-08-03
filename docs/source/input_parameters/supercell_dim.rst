@@ -16,7 +16,7 @@ supercell_dim
    ``1 1 1``.
 
 **Notes**
-   This is one of the most important parameters in ``input_SED.in`` because it
+   This is one of the most important parameters in the current input file because it
    determines the repetition matrix used for commensurate q-point selection.
    mdtrace does not use a separate ``num_qpoints`` parameter; the available
    q-points are determined by ``supercell_dim``, the primitive cell, the

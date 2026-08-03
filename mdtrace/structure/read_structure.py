@@ -13,14 +13,9 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-
-'''
-@author:
-**************************  LiangTing ***************************
-                      liangting.zj@gmail.com
-************************ 2020/9/22 14:22:15 *********************
-'''
-import os, sys, re
+import os
+import re
+import sys
 import numpy as np
 from mdtrace.structure.atoms import atom_data
 
