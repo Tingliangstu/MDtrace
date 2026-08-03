@@ -61,14 +61,19 @@ def prepare_trajectory(
     compression_level: int = 1,
     storage_dtype: str = "float32",
     lammps_unit: str = "metal",
+    text_mode: str = "cache",
     force: bool = False,
 ) -> tuple[Path, str]:
-    """Return ``(netcdf_path, source_format)`` for the compute pipeline."""
+    """Return the trajectory path selected for the compute pipeline."""
 
     source = Path(source).expanduser()
     source_format = detect_trajectory(source)
     if is_netcdf(source):
         return source, source_format
+    if text_mode == "direct":
+        return source, source_format
+    if text_mode != "cache":
+        raise ValueError("text_mode must be 'cache' or 'direct'")
 
     output = (
         Path(converted_path)

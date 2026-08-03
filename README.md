@@ -12,24 +12,25 @@
   <a href="https://mdtrace.readthedocs.io/en/latest/">
     <img src="https://readthedocs.org/projects/mdtrace/badge/?version=latest" alt="Documentation status">
   </a>
-  <img src="https://img.shields.io/badge/version-1.0.0-3f7f6f" alt="MDtrace version 1.0.0">
+  <img src="https://img.shields.io/badge/version-1.1.0-3f7f6f" alt="MDtrace version 1.1.0">
   <img src="https://img.shields.io/badge/python-%E2%89%A53.10-3776ab" alt="Python 3.10 or newer">
 </p>
 
-MDtrace 1.0 is an SED-focused toolkit for extracting eigenvector-free,
+MDtrace 1.1.0 is an SED-focused toolkit for extracting eigenvector-free,
 kinetic-energy-weighted phonon spectra from molecular-dynamics trajectories.
 It computes and visualizes total or element/direction-resolved spectral energy
 density (SED) and performs independent Lorentzian or velocity-DHO peak fitting.
 
 Dynamic structure factor (DSF) and electron energy-loss spectroscopy (EELS)
-are planned extensions; they are not part of the supported 1.0 workflow.
+are planned extensions; they are not part of the supported 1.1.0 workflow.
 
 ## Highlights
 
 - Builds exact wave vectors commensurate with a finite MD supercell.
 - Reads GPUMD extended XYZ, one-file LAMMPS custom dumps, and compatible
-  NetCDF trajectories.
-- Streams text trajectories once into a reusable `.mdtrace.nc` file.
+  NetCDF trajectories through one block-oriented interface.
+- Either streams text directly once or converts it to a reusable
+  `.mdtrace.nc` cache; optional one-block prefetch overlaps I/O with SED work.
 - Computes SED with serial NumPy, multiprocessing NumPy, or one optional CuPy
   GPU backend.
 - Writes total and element/Cartesian-resolved SED in `eV/THz`.
@@ -45,6 +46,7 @@ The complete manual is hosted on
 [Read the Docs](https://mdtrace.readthedocs.io/en/latest/):
 
 - [Installation](https://mdtrace.readthedocs.io/en/latest/installation.html)
+- [Release notes](https://mdtrace.readthedocs.io/en/latest/release_notes.html)
 - [Quick start](https://mdtrace.readthedocs.io/en/latest/starting.html)
 - [Input parameters](https://mdtrace.readthedocs.io/en/latest/input_parameters.html)
 - [Peak detection](https://mdtrace.readthedocs.io/en/latest/peak_detection.html)
@@ -52,9 +54,15 @@ The complete manual is hosted on
 - [Theory and fitting conventions](https://mdtrace.readthedocs.io/en/latest/theory.html)
 - [Troubleshooting](https://mdtrace.readthedocs.io/en/latest/troubleshooting.html)
 
+The documentation selector exposes two public versions after release:
+`latest` follows the `main` branch, while `1.1.0` is the frozen manual built
+from the matching Git tag. Use the tagged manual when reproducing a released
+calculation. Read the Docs may additionally expose `stable` as an alias for
+the newest stable tag; it is not a third independently maintained manual.
+
 ## Installation
 
-MDtrace 1.0 requires Python 3.10 or newer. Install the current source with:
+MDtrace 1.1.0 requires Python 3.10 or newer. Install the current source with:
 
 ```bash
 git clone https://github.com/Tingliangstu/MDtrace.git mdtrace
@@ -94,7 +102,7 @@ The calculation is controlled inside the input file:
 
 ```ini
 action = thinking        # run the next missing SED stage
-method = sed             # supported 1.0 method
+method = sed             # supported 1.1.0 method
 backend = numpy          # numpy or cupy
 ```
 
@@ -108,7 +116,8 @@ only `action`:
 `thinking` mode is a convenience that checks existing outputs and runs the
 next missing stage. MDtrace resolves relative trajectory and `basis.in` paths
 relative to the input file, so the command may be launched from another
-directory.
+directory. Relative output prefixes and the `Fitting-Qpoint/` and `Lifetime/`
+directories are written relative to the current working directory.
 
 For spectral fitting in `thinking` mode, `lorentz_fit_all_qpoint = 1` fits all
 Q points when the combined lifetime file is missing. If the parameter is
@@ -141,6 +150,9 @@ output_data_stride = 15      # dump_exyz stride in gpumd_run/run.in
 trajectory_file    = ../gpumd_run/dump.xyz
 basis_lattice_file = ../structure/basis.in
 out_files_name     = SrTiO3
+trajectory_read_mode = cache  # cache | direct for text trajectories
+trajectory_prefetch  = 1      # default: prepare one block ahead
+netcdf_compression_level = 1  # 0 disables compression of the text cache
 
 # ==================== Structure ====================
 supercell_dim = 20 20 20
@@ -164,8 +176,8 @@ plot_interval      = 5.0
 qpoint_slice_index = 23       # zero-based index
 plot_slice         = 1
 if_show_figures    = 0        # save without opening an interactive window
-# colorbar_min     = 1e-8     # optional manual limits
-# colorbar_max     = 0.1
+# colorbar_min     = -20      # optional natural-log color limits
+# colorbar_max     = -2
 
 # ==================== Spectral fitting ====================
 lorentz_fit_all_qpoint        = 0
@@ -222,8 +234,11 @@ loaded per block. The requested number of saved frames must be divisible by
 | `Lifetime/Fitting-All-Qpoints.Fre_lifetime` | The same two columns concatenated over all Q points; no Q-index column |
 | `Fitting-Frequency-Lifetime.png` | All-Q frequency-lifetime summary |
 
-For a selected partial SED component, its fitting summary is stored beside the
-partial SED figure under `<name>_partial_SED/`.
+For a selected partial SED component, `Fitting-Frequency-Lifetime.png` is
+stored under `<name>_partial_SED/`. The numbered fitting figures and lifetime
+tables still use the shared `Fitting-Qpoint/` and `Lifetime/` directories, so
+save or move an existing total-SED fit before fitting a partial component if
+both results must be retained.
 
 ## Interpreting fitted lifetimes
 
@@ -242,14 +257,14 @@ Q grid, and fitting settings.
 
 ## Roadmap
 
-The 1.0 release deliberately focuses on a clean SED workflow. Planned work
+The 1.1.0 release deliberately focuses on a clean SED workflow. Planned work
 includes:
 
 - dynamic structure factor (DSF),
 - electron energy-loss spectroscopy (EELS),
 - optional mode-projected SED using external eigenvectors.
 
-Roadmap items are not part of the supported 1.0 command interface.
+Roadmap items are not part of the supported 1.1.0 command interface.
 
 ## Citation
 
@@ -266,3 +281,8 @@ If MDtrace is used for SED analysis, please cite:
    *Physical Review B* **81**, 081411 (2010).
 
 Questions and feedback: `liangting.zj@gmail.com`.
+
+## License
+
+MDtrace is distributed under the
+[GNU General Public License v3.0 or later](LICENSE).

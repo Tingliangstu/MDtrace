@@ -7,7 +7,7 @@ MDtrace reads a plain-text input file. Each active line has the form
 
    parameter_name = value
 
-Blank lines and text following ``#`` are ignored. Version 1.0 supports the SED
+Blank lines and text following ``#`` are ignored. Version 1.1.0 supports the SED
 workflow; DSF and EELS are planned future extensions.
 
 Common parameters
@@ -26,13 +26,21 @@ Common parameters
        ``plot`` and ``fit`` use existing output
    * - ``method``
      - ``sed``
-     - ``sed`` is the supported 1.0 method
+     - ``sed`` is the supported 1.1.0 method
    * - ``backend``
      - ``numpy``
      - ``numpy`` or optional ``cupy``
    * - ``trajectory_file``
      - ``dump.xyz``
      - GPUMD XYZ, one LAMMPS dump, or compatible NetCDF
+   * - ``trajectory_read_mode``
+     - ``cache``
+     - ``cache`` converts text once to NetCDF; ``direct`` streams text once
+       during SED computation
+   * - ``trajectory_prefetch``
+     - ``1``
+     - ``0`` disables prefetch; ``1`` prepares exactly one trajectory block
+       in a background thread; applies to text and NetCDF
    * - ``out_files_name``
      - ``mdtrace``
      - Output prefix
@@ -60,7 +68,7 @@ Common parameters
        compression
    * - ``netcdf_batch_size``
      - ``64``
-     - Frames parsed and written per conversion batch
+     - Frames parsed per text batch, including conversion and direct reading
 
 SED structure and sampling
 --------------------------
@@ -462,8 +470,8 @@ Roadmap
 -------
 
 Dynamic structure factor (DSF) and electron energy-loss spectroscopy (EELS)
-are planned after the SED-focused 1.0 release. Their development parameters
-are not part of the supported 1.0 input-file interface.
+are planned after the SED-focused 1.1.0 release. Their development parameters
+are not part of the supported 1.1.0 input-file interface.
 
 .. toctree::
    :hidden:

@@ -15,9 +15,10 @@ The SED workflow can:
 - fit Lorentz or velocity-DHO peak centers and widths.
 
 MDtrace reads compatible NetCDF trajectories directly. GPUMD extended XYZ and
-one-file LAMMPS custom dumps are detected automatically, converted once to a
-neighboring NetCDF file, and reused.
+one-file LAMMPS custom dumps are detected automatically and can either be
+streamed directly once during SED computation or converted to a reusable
+NetCDF cache. Optional one-block background prefetch is shared by both paths.
 
-Version 1.0 supports SED calculation, plotting, and fitting. Dynamic structure
+Version 1.1.0 supports SED calculation, plotting, and fitting. Dynamic structure
 factor (DSF) and electron energy-loss spectroscopy (EELS) are planned future
-extensions and are not part of the supported 1.0 workflow.
+extensions and are not part of the supported 1.1.0 workflow.

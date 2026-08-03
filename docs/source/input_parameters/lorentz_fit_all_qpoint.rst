@@ -31,7 +31,10 @@ lorentz_fit_all_qpoint
       Fitting-Frequency-Lifetime.png
 
    For a partial-SED fit, the lifetime summary figure is placed beside the
-   selected partial-SED figure in ``<out_files_name>_partial_SED/``.
+   selected partial-SED figure in ``<out_files_name>_partial_SED/``. Numbered
+   fitting figures and lifetime tables still use the shared
+   ``Fitting-Qpoint/`` and ``Lifetime/`` directories; save an existing
+   total-SED fit first if both total and partial results must be retained.
 
    Fitting does not create separate ``.params``, ``.error``, or ``.models``
    diagnostic files.

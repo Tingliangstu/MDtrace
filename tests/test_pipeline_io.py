@@ -381,6 +381,18 @@ class ParserTests(unittest.TestCase):
         self.assertIn(success_line, message)
         self.assertLess(message.index(figure_line), message.index(success_line))
 
+    def test_thinking_defers_trajectory_preparation_to_compute(self):
+        params = SimpleNamespace(method="sed", action="thinking")
+
+        with (
+            patch("mdtrace.pipeline.step_prepare_trajectory") as prepare,
+            patch("mdtrace.pipeline._run_thinking") as thinking,
+        ):
+            run(params)
+
+        prepare.assert_not_called()
+        thinking.assert_called_once()
+
     def test_completion_reports_redrawn_lifetime_figure(self):
         params = SimpleNamespace(method="sed", action="fit")
 
@@ -749,11 +761,34 @@ class ParserTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             output = Path(directory) / "result"
             output.with_suffix(".SED").write_text("old", encoding="utf-8")
-            params = SimpleNamespace(out_files_name=str(output))
+            params = SimpleNamespace(
+                out_files_name=str(output),
+                total_num_steps=4,
+                output_data_stride=1,
+                num_blocks=2,
+                trajectory_prefetch=False,
+            )
             bz_info = object()
             sed = Mock()
+            first_block = SimpleNamespace(
+                data={"cells": np.eye(3)[None, :, :]},
+            )
+            second_block = SimpleNamespace(
+                data={"cells": np.eye(3)[None, :, :]},
+            )
+            raw_blocks = iter([first_block, second_block])
+            trajectory = SimpleNamespace(
+                info=object(),
+                iter_blocks=Mock(return_value=raw_blocks),
+            )
+            output = io.StringIO()
 
             with (
+                patch("mdtrace.pipeline.step_prepare_trajectory"),
+                patch(
+                    "mdtrace.pipeline.trajectory_block_source",
+                    return_value=trajectory,
+                ),
                 patch(
                     "mdtrace.pipeline.construct_BZ.BZ_methods",
                     return_value=bz_info,
@@ -763,11 +798,26 @@ class ParserTests(unittest.TestCase):
                     return_value=sed,
                 ),
                 patch("mdtrace.pipeline.FileIO.write_output") as write_output,
+                patch(
+                    "mdtrace.pipeline.time.perf_counter",
+                    side_effect=(10.0, 12.0, 20.0, 23.0),
+                ),
+                redirect_stdout(output),
             ):
                 step_compute_sed(params)
 
-            sed.compute_sed.assert_called_once_with(params, bz_info)
+            sed.compute_sed.assert_called_once_with(
+                params,
+                bz_info,
+                first_block,
+                raw_blocks,
+            )
             write_output.assert_called_once_with(sed, params, bz_info)
+            message = output.getvalue()
+            self.assertIn("SED compute done (13.0 s)", message)
+            self.assertIn("Initial read/setup : 2.0 s", message)
+            self.assertIn("SED calculation    : 8.0 s", message)
+            self.assertIn("Output/finalization: 3.0 s", message)
 
     def test_single_trajectory_configuration(self) -> None:
         with TemporaryDirectory() as directory:
@@ -807,6 +857,8 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(params.plot_partial_element, "O")
             self.assertEqual(params.plot_partial_dir, "y")
             self.assertFalse(hasattr(params, "plot_partial_type"))
+            self.assertEqual(params.trajectory_read_mode, "cache")
+            self.assertTrue(params.trajectory_prefetch)
 
     def test_netcdf_tuning_parameters_are_validated(self) -> None:
         with TemporaryDirectory() as directory:
@@ -938,6 +990,10 @@ class ParserTests(unittest.TestCase):
                 "action = plot\nbackend = unknown\n",
                 "backend 'unknown' is not available",
             ),
+            "invalid_trajectory_read_mode": (
+                "action = plot\ntrajectory_read_mode = parallel\n",
+                "trajectory_read_mode must be 'cache' or 'direct'",
+            ),
         }
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1055,6 +1111,28 @@ class ParserTests(unittest.TestCase):
                 params.trajectory_path,
             )
 
+    def test_pipeline_can_read_text_directly_without_creating_a_cache(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            trajectory = root / "dump.xyz"
+            trajectory.write_text(GPUMD_TEXT, encoding="utf-8")
+            input_file = root / "input.in"
+            input_file.write_text(
+                "action = plot\n"
+                f"trajectory_file = {trajectory}\n"
+                "trajectory_read_mode = direct\n"
+                "trajectory_prefetch = 1\n",
+                encoding="utf-8",
+            )
+
+            params = read_input(str(input_file))
+            step_prepare_trajectory(params)
+
+            self.assertEqual(params.source_format, "gpumd_xyz")
+            self.assertEqual(params.trajectory_path, str(trajectory))
+            self.assertTrue(params.trajectory_prefetch)
+            self.assertFalse((root / "dump.xyz.mdtrace.nc").exists())
+
     @unittest.skipUnless(NETCDF4_AVAILABLE, "netCDF4 is not installed")
     def test_pipeline_reads_gpumd_netcdf_directly(self) -> None:
         from netCDF4 import Dataset
@@ -1082,7 +1160,8 @@ class ParserTests(unittest.TestCase):
             input_file = root / "input.in"
             input_file.write_text(
                 "action = plot\n"
-                f"trajectory_file = {trajectory}\n",
+                f"trajectory_file = {trajectory}\n"
+                "trajectory_read_mode = direct\n",
                 encoding="utf-8",
             )
 

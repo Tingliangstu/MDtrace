@@ -22,7 +22,8 @@ plot_partial_SED
 **Notes**
    Requires partial files generated earlier with ``output_partial = 1``. For
    example, ``plot_partial_SED = O y`` reads
-   ``<out_files_name>.SED_O_y``.
+   ``<out_files_name>_partial_SED/<basename>.SED_O_y``, where ``basename`` is
+   the final path component of ``out_files_name``.
 
 :doc:`Back to Parameter Index <../input_parameters>`
 

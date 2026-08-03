@@ -112,8 +112,8 @@ The numerical conversion factor is approximately
 frequency to ordinary frequency, :math:`10^{12}` converts THz to Hz, and the
 denominator is the exact joule-per-electronvolt conversion.
 
-The ``.SED`` files, partial SED files, q-point slice plots, and Lorentzian
-peak amplitudes all use :math:`\mathrm{eV/THz}`. The dispersion heatmap
+The ``.SED`` files, partial SED files, q-point slice plots, and fitted
+Lorentz/DHO peak amplitudes all use :math:`\mathrm{eV/THz}`. The dispersion heatmap
 displays the dimensionless natural-log ratio
 :math:`\ln\left(\Phi_f/(1\,\mathrm{eV\,THz^{-1}})\right)`. The complete
 public unit and plotting conventions are collected in :doc:`sed_units`.
@@ -221,7 +221,9 @@ Calculation logic
 1. Read the basis mapping and prepare basis IDs, masses, type mappings, and Q
    points once.
 2. Select serial NumPy, persistent multiprocessing, or single-GPU CuPy.
-3. Read one requested NetCDF trajectory block.
+3. Read one requested trajectory block through the common text/NetCDF source.
+   With ``trajectory_prefetch = 1``, prepare the next block in one background
+   thread while the current block is computed.
 4. Average the reference-atom positions to obtain one equilibrium unit-cell
    reference vector for each repeated cell in the block.
 5. Construct :math:`\exp(i\mathbf q\cdot\mathbf R_l)`.
@@ -238,6 +240,15 @@ The CPU path creates one process pool for the complete SED calculation. Each
 trajectory block is copied once into shared memory, and workers receive only
 small Q-point ranges. The CuPy path uploads one block, checks estimated device
 memory before the first block, and frees its memory pools after completion.
+
+For the CuPy timing report, ``Sum of the six rows above`` has a literal
+meaning: it adds the six block-wait and GPU-operation rows. ``Other SED work``
+accounts for the remaining setup, allocation, accumulation, averaging, and
+cleanup inside the SED calculation. Their sum is printed as
+``Total SED calculation time``. The final SED-step report separately shows
+initial trajectory reading/setup, the SED calculation, and
+output/finalization. These three stages sum to the reported
+``SED compute done`` time.
 
 Partial SED
 -----------

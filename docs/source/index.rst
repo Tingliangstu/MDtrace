@@ -5,7 +5,7 @@ MDtrace documentation
 trajectories. Its production workflow calculates phonon spectral energy
 density (SED), plots kinetic-energy-weighted dispersions, decomposes SED by
 element and Cartesian direction, and fits spectral peaks with Lorentz or DHO
-line shapes. Version 1.0 supports the SED workflow; dynamic structure factor
+line shapes. Version 1.1.0 supports the SED workflow; dynamic structure factor
 (DSF) and electron energy-loss spectroscopy (EELS) are future extensions.
 
 Start with :doc:`starting`, then use :doc:`input_parameters` as the current
@@ -18,6 +18,7 @@ described in :doc:`theory`.
    :caption: User manual
 
    introduction
+   release_notes
    installation
    starting
    input_parameters

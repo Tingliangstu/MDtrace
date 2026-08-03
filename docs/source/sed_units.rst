@@ -25,7 +25,7 @@ The area under a spectrum therefore has units of energy:
    \Phi_f(f)[\mathrm{eV\,THz^{-1}}]\,
    df[\mathrm{THz}].
 
-Lorentzian peak amplitudes use the same
+Fitted Lorentz and DHO peak amplitudes use the same
 :math:`\mathrm{eV\,THz^{-1}}` unit. ``peak_min_significance`` is a
 dimensionless ratio of log-SED prominence to a local robust noise estimate.
 
@@ -86,7 +86,7 @@ Single-q spectrum
 
 A single-q plot displays the physical quantity, labelled conventionally as
 :math:`\Phi(\mathbf q,\omega)`, directly on a logarithmic y-axis. Its tick
-values, Lorentzian curves, and fitted amplitudes remain in
+values, fitted line-shape curves, and fitted amplitudes remain in
 :math:`\mathrm{eV\,THz^{-1}}`; the plotted quantity is not replaced by its
 natural logarithm. This is why the single-q y-axis carries the physical unit,
 whereas the dispersion colorbar is dimensionless.
@@ -107,7 +107,7 @@ Summary
    * - Dispersion heatmap color
      - :math:`\ln\left(\Phi_f/(1\,\mathrm{eV\,THz^{-1}})\right)`
      - dimensionless
-   * - Single-q spectrum and Lorentzian curves
+   * - Single-q spectrum and fitted line-shape curves
      - :math:`\Phi_f(\mathbf q,f)` on a logarithmic y-axis
      - :math:`\mathrm{eV\,THz^{-1}}`
    * - ``peak_min_significance``

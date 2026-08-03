@@ -13,7 +13,15 @@ from pathlib import Path
 project = 'mdtrace'
 copyright = '2025-2026, Ting Liang'
 author = 'Ting Liang'
-release = '1.0.0'
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_VERSION_TEXT = (_REPOSITORY_ROOT / 'mdtrace' / 'version.py').read_text(
+    encoding='utf-8'
+)
+release = re.search(
+    r'__version__\s*=\s*["\']([^"\']+)["\']',
+    _VERSION_TEXT,
+).group(1)
+version = '.'.join(release.split('.')[:2])
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -125,7 +133,6 @@ _sync_publications_page()
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-import sphinx_rtd_theme
 html_theme = "sphinx_rtd_theme"
 html_baseurl = os.environ.get(
     'READTHEDOCS_CANONICAL_URL',
@@ -143,7 +150,6 @@ html_logo = '_static/logo.svg'
 # Theme options
 html_theme_options = {
     'logo_only': False,           # Show project name alongside logo
-    #'display_version': True,      # Display the version number
     'prev_next_buttons_location': 'bottom',
     'style_external_links': True,
     # Add other options as needed
@@ -154,7 +160,10 @@ html_context = {
     'display_github': True,  # Enable the display of the GitHub link
     'github_user': 'Tingliangstu',  # Replace with your GitHub username
     'github_repo': 'mdtrace',  # Replace with your repository name
-    'github_version': 'main',  # Your main branch name (usually 'main' or 'master')
+    'github_version': os.environ.get(
+        'READTHEDOCS_GIT_IDENTIFIER',
+        'main',
+    ),
     'conf_py_path': '/docs/source/',  # Path to your conf.py file
 }
 

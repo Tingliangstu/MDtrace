@@ -19,6 +19,12 @@ out_files_name
    ``bulk_MoS2.SED``, ``bulk_MoS2.Qpts``, ``bulk_MoS2.THz``,
    ``bulk_MoS2.Q_distances_and_labels``, and ``bulk_MoS2-SED.png``.
 
+**Path behavior**
+   A relative output prefix is interpreted from the current working directory
+   where ``mdtrace`` is launched, not from the directory containing the input
+   file. The fitting directories ``Fitting-Qpoint/`` and ``Lifetime/`` are
+   likewise created in the current working directory.
+
 :doc:`Back to Parameter Index <../input_parameters>`
 
 Related parameters

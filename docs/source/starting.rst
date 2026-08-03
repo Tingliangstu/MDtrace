@@ -11,7 +11,7 @@ Installation check
 Shared commands
 ---------------
 
-The supported 1.0 command interface is SED-focused:
+The supported 1.1.0 command interface is SED-focused:
 
 .. code-block:: bash
 
@@ -41,7 +41,7 @@ Create ``input.in``:
 
    # Common control
    action  = thinking
-   method  = sed             # supported 1.0 method
+   method  = sed             # supported 1.1.0 method
    backend = numpy
 
    # Trajectory
@@ -87,9 +87,35 @@ Trajectory input
 - one LAMMPS custom dump containing atom IDs, positions, and velocities,
 - compatible GPUMD, LAMMPS, or MDtrace NetCDF.
 
-Text trajectories are detected automatically, streamed once into a neighboring
-``.mdtrace.nc`` file, and reused. NetCDF trajectories are read directly and
-only one requested block is loaded at a time.
+Text trajectories are detected automatically. By default they are streamed
+once into a ``.mdtrace.nc`` cache beside the input file and reused; direct
+streaming is also available. NetCDF trajectories are read directly, and only
+one requested block is loaded at a time unless prefetch is enabled.
+
+For a text trajectory, choose whether to create that reusable cache or consume
+the original file directly:
+
+.. code-block:: text
+
+   trajectory_read_mode = cache   # default: create/reuse .mdtrace.nc
+   # trajectory_read_mode = direct  # no intermediate NetCDF file
+
+``direct`` reads the requested GPUMD XYZ or LAMMPS frames sequentially once;
+it never restarts the text scan for each averaging block. Native NetCDF input
+is always read directly, regardless of this setting.
+
+Optional one-block prefetch works for direct text, cached NetCDF, and native
+NetCDF:
+
+.. code-block:: text
+
+   trajectory_prefetch = 1
+
+It lets one background thread prepare the next trajectory block while the
+current block is used for SED computation. The tradeoff is enough additional
+CPU memory for one raw block of positions and velocities. It is enabled by
+default; set it to ``0`` when memory is limited or benchmarking shows no
+benefit.
 
 A suitable LAMMPS dump is:
 

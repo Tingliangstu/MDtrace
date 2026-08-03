@@ -20,12 +20,17 @@ from fractions import Fraction
 
 import numpy as np
 
-from mdtrace.io.netcdf import NetCDFReader
 from mdtrace.structure import generate_data
 
 
 class BZ_methods(object):
-    def __init__(self, params, box_info=True, qpoints_info=True):
+    def __init__(
+        self,
+        params,
+        box_in_traj,
+        box_info=True,
+        qpoints_info=True,
+    ):
 
         self.box_info = box_info
         self.qpoints_info = qpoints_info
@@ -36,7 +41,7 @@ class BZ_methods(object):
         self.cell_ref_ids = self.cell_ref_ids.reshape(len(self.cell_ref_ids))
 
         # Compare lattice cell
-        self._compare_cell(params)
+        self._compare_cell(params, box_in_traj)
 
         ############## Construct Brillouin zone ################
         # calculate direct lattice vectors (for orthogonal or triclinic lattice vectors)
@@ -91,11 +96,10 @@ class BZ_methods(object):
 
         return primitive_cell
 
-    def _compare_cell(self, params):
+    def _compare_cell(self, params, box_in_traj):
 
         ########## Output simulation cell informations ############
-        with NetCDFReader(params.trajectory_path) as trajectory:
-            box_in_traj = trajectory.read_cells(slice(0, 1))[0]
+        box_in_traj = np.asarray(box_in_traj, dtype=float)
 
         # Here is important, means that the supercells used for MD simulation can be different from primitive cells.
         self.supercell = box_in_traj

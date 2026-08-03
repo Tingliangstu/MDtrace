@@ -91,13 +91,13 @@ USAGE:
     mdtrace -h
 
 DESCRIPTION:
-    MDtrace 1.0 computes phonon spectral energy density (SED), plots
+    MDtrace 1.1.0 computes phonon spectral energy density (SED), plots
     reciprocal-space spectra, and fits spectral peaks:
 
       method = sed   →  SED compute, plot, and Lorentz/DHO fitting
 
     DSF and EELS are planned extensions and are not part of the
-    supported 1.0 workflow.
+    supported 1.1.0 workflow.
 
     Supported MD formats: GPUMD, LAMMPS.
 
@@ -110,7 +110,7 @@ DESCRIPTION:
     action = plot          # plot existing numerical output
     action = fit           # fit existing SED output
 
-    method = sed           # supported 1.0 method
+    method = sed           # supported 1.1.0 method
 
     backend = numpy        # CPU (default)
     backend = cupy         # GPU (optional CuPy installation)
@@ -120,7 +120,7 @@ DESCRIPTION:
     thinking mode automatically detects what has been done and
     runs the next missing step:
 
-      Text trajectory? → convert once to .mdtrace.nc
+      Text trajectory? → direct stream or reusable .mdtrace.nc cache
       No .SED data?    → compute + plot
       SED exists?      → plot if needed, then fit on the next run
       All done?        → reports complete, suggests re-run actions

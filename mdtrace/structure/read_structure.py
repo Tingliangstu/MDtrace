@@ -13,7 +13,9 @@
 #     along with MDTRACE.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-import os, sys, re
+import os
+import re
+import sys
 import numpy as np
 from mdtrace.structure.atoms import atom_data
 

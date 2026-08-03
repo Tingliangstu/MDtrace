@@ -135,6 +135,8 @@ common_params = {
     "trajectory_file": Parameter("dump.xyz", read_text),
     "out_files_name": Parameter("mdtrace", read_text),
     "lammps_unit": Parameter("metal", read_lower_text),
+    "trajectory_read_mode": Parameter("cache", read_lower_text),
+    "trajectory_prefetch": Parameter(True, read_bool),
     "netcdf_compression_level": Parameter(1, read_int),
     "netcdf_batch_size": Parameter(64, read_int),
 
@@ -226,6 +228,10 @@ def validate_common(params):
         )
     if params.lammps_unit not in {"metal", "real"}:
         raise ValueError("lammps_unit must be 'metal' or 'real'")
+    if params.trajectory_read_mode not in {"cache", "direct"}:
+        raise ValueError(
+            "trajectory_read_mode must be 'cache' or 'direct'"
+        )
 
     needs_trajectory = (
         params.method in {"sed", "dsf"}

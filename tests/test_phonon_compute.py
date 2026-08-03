@@ -352,20 +352,16 @@ class SEDKernelTests(unittest.TestCase):
             "qdot",
             np.ones((8, num_qpoints)),
         )
-        calculator._get_simulation_data = lambda params, lattice: (
-            self.vels,
-            self.cell_vecs,
-        )
         calculator._print_cpu_memory_estimate = lambda *args: None
         calculator._loop_over_qpoints = lambda *args: None
 
         lattice = SimpleNamespace(num_qpoints=7)
         calculator._loop_over_blocks(
-            params=None,
             lattice_info=lattice,
             kernel_config=config,
             executor=None,
             num_workers=1,
+            trajectory_blocks=[(self.vels, self.cell_vecs)],
         )
 
         expected = calculator.dt**2 / (

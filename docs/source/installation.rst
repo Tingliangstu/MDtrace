@@ -1,7 +1,7 @@
 Installation
 ============
 
-MDtrace 1.0 requires Python 3.10 or newer.
+MDtrace 1.1.0 requires Python 3.10 or newer.
 
 From source
 -----------

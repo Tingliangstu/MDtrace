@@ -25,7 +25,10 @@ import sys
 import time
 from pathlib import Path
 
+from mdtrace.io.netcdf import is_netcdf
 from mdtrace.io.prepare import prepare_trajectory
+from mdtrace.io.schema import CELLS
+from mdtrace.io.trajectory import prefetch_one, trajectory_block_source
 from mdtrace.parameters import validate_qpoint_slice_index
 from mdtrace.sed import (
     FileIO,
@@ -129,7 +132,7 @@ def _dsf_ready(params):
 # ── step runners ────────────────────────────────────────────────
 
 def step_prepare_trajectory(params):
-    """Resolve every supported trajectory to one readable NetCDF file."""
+    """Resolve a text trajectory to direct reading or a NetCDF cache."""
     source = Path(params.trajectory_file)
     input_directory = Path(params.input_file).parent
     converted_path = input_directory / f"{source.name}.mdtrace.nc"
@@ -141,31 +144,78 @@ def step_prepare_trajectory(params):
         lammps_unit=params.lammps_unit,
         batch_size=params.netcdf_batch_size,
         compression_level=params.netcdf_compression_level,
+        text_mode=params.trajectory_read_mode,
     )
     params.source_format = source_format
     params.trajectory_path = str(prepared)
     elapsed = time.perf_counter() - t0
-    if prepared == source:
+    if prepared == source and is_netcdf(prepared):
         print(f"  ✓  Reading NetCDF trajectory: {prepared}\n")
+    elif prepared == source:
+        print(f"  ✓  Reading text trajectory directly: {prepared}")
+        print("      NetCDF cache         : disabled\n")
     else:
         print(f"  ✓  Trajectory ready: {prepared} ({elapsed:.1f} s)\n")
 
 
 def step_compute_sed(params):
     """Compute phonon SED."""
+    step_prepare_trajectory(params)
     print("  ▶  Computing phonon SED ...")
     t0 = time.perf_counter()
 
-    BZ_info = construct_BZ.BZ_methods(params)
-    sed = Phonon.spectral_energy_density(params)
-    sed.compute_sed(params, BZ_info)
+    trajectory = trajectory_block_source(params)
+    num_frames = params.total_num_steps // params.output_data_stride
+    block_size = num_frames // params.num_blocks
+    raw_blocks = trajectory.iter_blocks(block_size, params.num_blocks)
+    prefetch_enabled = bool(
+        params.trajectory_prefetch and params.num_blocks > 1
+    )
+    if prefetch_enabled:
+        prefetch_status = (
+            "ON (next block loads in background; may speed up SED)"
+        )
+    elif params.trajectory_prefetch:
+        prefetch_status = "OFF (only one block to process)"
+    else:
+        prefetch_status = "OFF (blocks load when needed)"
+    print(f"      Trajectory prefetch : {prefetch_status}")
+    with prefetch_one(raw_blocks, enabled=prefetch_enabled) as blocks:
+        try:
+            first_block = next(blocks)
+        except StopIteration as error:
+            raise EOFError("trajectory contains no readable frames") from error
+
+        BZ_info = construct_BZ.BZ_methods(
+            params,
+            first_block.data[CELLS][0],
+        )
+        sed = Phonon.spectral_energy_density(params, trajectory.info)
+        setup_done = time.perf_counter()
+        sed.compute_sed(
+            params,
+            BZ_info,
+            first_block,
+            blocks,
+        )
+        calculation_done = time.perf_counter()
 
     # Some parallel workers may leave dangling imports; silence them
     sys.stdout.flush()
 
     FileIO.write_output(sed, params, BZ_info)
-    elapsed = time.perf_counter() - t0
+    finished = time.perf_counter()
+    elapsed = finished - t0
     print(f"  ✓  SED compute done ({elapsed:.1f} s)")
+    print(f"      Initial read/setup : {setup_done - t0:.1f} s")
+    print(
+        "      SED calculation    : "
+        f"{calculation_done - setup_done:.1f} s"
+    )
+    print(
+        "      Output/finalization: "
+        f"{finished - calculation_done:.1f} s"
+    )
 
 
 def step_plot_sed(params):
@@ -337,6 +387,7 @@ def step_fit_sed(params):
 
 def step_compute_dsf(params):
     """Compute dynamic structure factor."""
+    step_prepare_trajectory(params)
     print("  ▶  Computing DSF ...")
     t0 = time.perf_counter()
     from mdtrace.dsf import compute_dsf, save_dsf
@@ -403,9 +454,6 @@ def run(params):
 
     if method == "eels":
         step_compute_eels(params)
-
-    if action in {"thinking", "compute"}:
-        step_prepare_trajectory(params)
 
     if action == "thinking":
         # ── thinking mode: detect what needs doing ──

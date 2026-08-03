@@ -8,7 +8,7 @@ lorentz_fit_freq_min
    lorentz_fit_freq_min = 2.0
 
 **Meaning**
-   Minimum frequency included in Lorentzian peak detection and fitting, in
+   Minimum frequency included in spectral peak detection and fitting, in
    THz. Combine it with ``lorentz_fit_freq_max`` to select a finite fitting
    interval:
 

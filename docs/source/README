@@ -4,6 +4,8 @@ MDtrace documentation
 From the repository root, install the documentation dependencies and run a
 strict HTML build:
 
+.. code-block:: bash
+
    python -m pip install -r docs/requirements.txt
    python -m sphinx -W -b html docs/source docs/_build/html
 

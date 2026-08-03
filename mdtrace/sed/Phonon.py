@@ -18,12 +18,13 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import chain
 from multiprocessing import shared_memory
 
 import numpy as np
 from scipy.fftpack import fft, fftfreq
 
-from mdtrace.io.netcdf import NetCDFReader
+from mdtrace.io.schema import POSITIONS, VELOCITIES
 from mdtrace.structure.atoms import atomic_masses
 
 
@@ -149,7 +150,7 @@ def _calculate_q_batch(
         else:
             transformed_vels = gpu_profiler.measure(
                 "fft",
-                lambda: fft_function(projected_vels, axis=0),
+                lambda values=projected_vels: fft_function(values, axis=0),
             )
         spectra = (
             xp.abs(transformed_vels) ** 2
@@ -313,7 +314,7 @@ def _estimate_kernel_working_bytes(vels, config, max_q_batch):
 class spectral_energy_density:
     """Calculate spectral energy density with a CPU or CuPy backend."""
 
-    def __init__(self, params):
+    def __init__(self, params, trajectory_info):
         """Validate the trajectory and prepare the common frequency grid."""
 
         self.num_frame = (
@@ -321,18 +322,11 @@ class spectral_energy_density:
         )
         self.num_frames_per_block = self.num_frame // params.num_blocks
 
-        with NetCDFReader(params.trajectory_path) as trajectory:
-            trajectory.require("positions", "velocities")
-            if trajectory.info.n_atoms != params.num_atoms:
-                raise ValueError(
-                    f"Trajectory has {trajectory.info.n_atoms} atoms, "
-                    f"but num_atoms = {params.num_atoms}."
-                )
-            if trajectory.info.n_frames < self.num_frame:
-                raise ValueError(
-                    f"Trajectory has {trajectory.info.n_frames} frames, "
-                    f"but {self.num_frame} are requested."
-                )
+        if trajectory_info.n_atoms != params.num_atoms:
+            raise ValueError(
+                f"Trajectory has {trajectory_info.n_atoms} atoms, "
+                f"but num_atoms = {params.num_atoms}."
+            )
 
         print(
             "\nThe number of frames used to calculate SED is "
@@ -365,10 +359,17 @@ class spectral_energy_density:
             fftfreq(self.num_frames_per_block, self.dt) / 1e12
         )
 
-    def compute_sed(self, params, lattice_info):
+    def compute_sed(
+        self,
+        params,
+        lattice_info,
+        first_trajectory_block,
+        remaining_trajectory_blocks,
+    ):
         """Prepare static metadata and run every block through one backend."""
 
         self.backend = params.backend
+        self.trajectory_prefetch = bool(params.trajectory_prefetch)
         max_cores = params.max_cores
         start_time = time.time()
 
@@ -462,13 +463,22 @@ class spectral_energy_density:
                 "for computing SED *****************"
             )
 
+        first_block = self._get_simulation_data(
+            first_trajectory_block,
+            lattice_info,
+        )
+        remaining_blocks = (
+            self._get_simulation_data(block, lattice_info)
+            for block in remaining_trajectory_blocks
+        )
+
         try:
             self._loop_over_blocks(
-                params,
                 lattice_info,
                 kernel_config,
                 executor,
                 num_workers,
+                chain((first_block,), remaining_blocks),
             )
             if self.backend == "cupy":
                 self._print_gpu_timing_profile()
@@ -486,8 +496,17 @@ class spectral_energy_density:
         self._average_blocks_and_frequencies()
 
         elapsed = time.time() - start_time
+        if self.backend == "cupy":
+            other_sed_work = max(
+                0.0,
+                elapsed - self._gpu_profiled_total,
+            )
+            print(
+                f"  {'Other SED work':<30}: "
+                f"{other_sed_work:8.2f} s"
+            )
         print(
-            "\n************ Time for SED computing taken: "
+            "\n************ Total SED calculation time: "
             f"{elapsed:.2f} seconds. ************"
         )
 
@@ -527,11 +546,11 @@ class spectral_energy_density:
 
     def _loop_over_blocks(
         self,
-        params,
         lattice_info,
         kernel_config,
         executor,
         num_workers,
+        trajectory_blocks,
     ):
         """Read each trajectory block once and send it to the chosen backend."""
 
@@ -539,17 +558,21 @@ class spectral_energy_density:
         scaling_const = self.dt**2 / (
             4 * np.pi * self.t_o * self.num_unit_cells
         )
+        trajectory_blocks = iter(trajectory_blocks)
         for block_index in range(self.num_blocks):
             self.block_index = block_index
             self._allocate_qdot(lattice_info.num_qpoints)
 
-            # NetCDF supplies only this block. CPU workers share the resulting
-            # vels array; the GPU path uploads that array only once.
+            # The source supplies one exact block. With prefetch enabled, only
+            # a wait for a not-yet-ready block remains on the critical path.
             read_start = time.perf_counter()
-            vels, cell_vecs = self._get_simulation_data(
-                params,
-                lattice_info,
-            )
+            try:
+                vels, cell_vecs = next(trajectory_blocks)
+            except StopIteration as error:
+                raise EOFError(
+                    f"Trajectory supplied only {block_index} of "
+                    f"{self.num_blocks} required blocks."
+                ) from error
             if getattr(self, "backend", "numpy") == "cupy":
                 self._gpu_timings["trajectory"] += (
                     time.perf_counter() - read_start
@@ -612,6 +635,12 @@ class spectral_energy_density:
             + vels.nbytes
             + cell_vecs.nbytes
         )
+        prefetched_block = (
+            2 * vels.nbytes + cell_vecs.nbytes
+            if getattr(self, "trajectory_prefetch", False)
+            and getattr(self, "num_blocks", 1) > 1
+            else 0
+        )
         shared_velocities = vels.nbytes if executor is not None else 0
         if self.backend == "cupy":
             active_workers = 0
@@ -619,6 +648,7 @@ class spectral_energy_density:
             active_workers = num_workers if executor is not None else 1
         estimated_bytes = (
             persistent_arrays
+            + prefetched_block
             + shared_velocities
             + active_workers * worker_peak
         )
@@ -873,7 +903,7 @@ class spectral_energy_density:
 
         stages = (
             (
-                "CPU: NetCDF read + cell refs",
+                "CPU: trajectory block wait",
                 self._gpu_timings["trajectory"],
             ),
             ("CPU -> GPU upload", event_times.get("upload", 0.0)),
@@ -883,6 +913,7 @@ class spectral_energy_density:
             ("GPU -> CPU result", event_times.get("download", 0.0)),
         )
         profiled_total = sum(seconds for _, seconds in stages)
+        self._gpu_profiled_total = profiled_total
 
         print(
             "\n****************** CuPy SED timing profile "
@@ -898,7 +929,10 @@ class spectral_energy_density:
                 f"  {label:<30}: {seconds:8.2f} s "
                 f"({percentage:5.1f}%)"
             )
-        print(f"  {'Profiled total':<30}: {profiled_total:8.2f} s")
+        print(
+            f"  {'Sum of the six rows above':<30}: "
+            f"{profiled_total:8.2f} s"
+        )
         if self._gpu_total_bytes:
             print(
                 "\n  🚀🚀 Observed GPU memory after SED blocks: "
@@ -945,23 +979,18 @@ class spectral_energy_density:
         # integrating the output over the THz axis directly returns eV.
         self.sed_avg *= JOULE_SECOND_TO_EV_PER_THZ
 
-    def _get_simulation_data(self, params, lattice_info):
-        """Read only the current block and derive averaged cell vectors."""
+    def _get_simulation_data(self, block, lattice_info):
+        """Reduce one raw trajectory block to the arrays required by SED."""
 
         try:
-            start = self.block_index * self.num_frames_per_block
-            stop = (self.block_index + 1) * self.num_frames_per_block
-            frames = slice(start, stop)
-
-            with NetCDFReader(params.trajectory_path) as trajectory:
-                vels = trajectory.read_velocities(frames)
-                pos = trajectory.read_positions(frames)
+            vels = block.data[VELOCITIES]
+            pos = block.data[POSITIONS]
 
             # Reference atoms identify corresponding cells across the block.
             cell_vecs = pos[:, lattice_info.cell_ref_ids, :].mean(axis=0)
             return vels, cell_vecs
         except Exception as error:
             raise EOFError(
-                f"******* Can't read {params.trajectory_path}\n"
+                "******* Can't prepare a trajectory block\n"
                 f"Error: {error}; check the trajectory and 'basis.in'. *******"
             ) from error
