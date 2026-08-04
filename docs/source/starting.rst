@@ -87,6 +87,12 @@ Trajectory input
 - one LAMMPS custom dump containing atom IDs, positions, and velocities,
 - compatible GPUMD, LAMMPS, or MDtrace NetCDF.
 
+For recommended GPUMD and LAMMPS production-output commands (NetCDF first,
+then supported text fallbacks), see
+:doc:`Preparing the trajectory and basis mapping
+<sed_workflow/preparing_trajectory_basis>`. In particular, ordinary LAMMPS
+``dump xyz`` does not contain velocities and therefore cannot be used for SED.
+
 Text trajectories are detected automatically. By default they are streamed
 once into a ``.mdtrace.nc`` cache beside the input file and reused; direct
 streaming is also available. NetCDF trajectories are read directly, and only

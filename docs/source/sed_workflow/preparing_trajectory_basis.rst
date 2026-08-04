@@ -12,7 +12,68 @@ MDtrace accepts one of the following through
   information;
 - a compatible GPUMD, LAMMPS, or MDtrace NetCDF trajectory.
 
-A suitable LAMMPS dump is
+For production SED, prefer a NetCDF trajectory. It is a portable binary
+format that stores coordinates, velocities, and cell data together; MDtrace
+reads a named ``.nc`` file directly, without first creating an MDtrace cache.
+Text trajectories remain useful when a simulation code or an existing workflow
+already writes them, but they are substantially larger and slower to parse.
+
+GPUMD
+~~~~~
+
+The following is a practical GPUMD production-output block. The NetCDF command
+writes every atom (the group ID is ignored because the grouping method is
+``-1``), records velocities, and samples every 10 MD steps:
+
+.. code-block:: text
+
+   ensemble       nve
+   time_step      1
+   dump_thermo    2000
+   dump_netcdf    -1 1 10 1 trajectory.nc compression deflate 1
+
+Set ``trajectory_file = trajectory.nc`` and
+``output_data_stride = 10`` in ``input.in``. With a 1 fs MD step, this stores
+one frame every 10 fs. ``compression deflate 1`` is lossless and is a useful
+space/speed compromise. Use ``compression none`` instead when maximum
+trajectory write throughput matters more than file size.
+
+The supported text alternative is GPUMD extended XYZ:
+
+.. code-block:: text
+
+   dump_xyz       -1 1 10 trajectory.xyz velocity
+
+It contains the lattice, positions, and velocities needed by SED, but its text
+representation costs more storage and read time than NetCDF. See the official
+`GPUMD dump_netcdf documentation
+<https://gpumd.org/dev/gpumd/input_parameters/dump_netcdf.html>`__ and
+`GPUMD dump_xyz documentation
+<https://gpumd.org/dev/gpumd/input_parameters/dump_xyz.html>`__ for all
+options.
+
+LAMMPS
+~~~~~~
+
+Use LAMMPS NetCDF when the LAMMPS build includes the ``NETCDF`` package. For a
+simulation using ``units metal`` (Angstrom and ps), a matching SED dump is:
+
+.. code-block:: text
+
+   units          metal
+   timestep       0.001
+   dump           mdtrace all netcdf 10 trajectory.nc type x y z vx vy vz
+
+Set ``trajectory_file = trajectory.nc`` and
+``output_data_stride = 10`` in ``input.in``. MDtrace obtains the coordinate,
+velocity, and cell units from the NetCDF metadata. LAMMPS documents this as an
+AMBER-style, portable, self-describing binary trajectory. The official
+`LAMMPS dump netcdf documentation
+<https://docs.lammps.org/dump_netcdf.html>`__ describes package requirements
+and the parallel ``netcdf/mpiio`` writer.
+
+For an existing text-based LAMMPS workflow, use one custom dump containing the
+atom ID, coordinates, and velocities:
 
 .. code-block:: text
 
@@ -22,6 +83,22 @@ A suitable LAMMPS dump is
 Use :doc:`../input_parameters/lammps_unit` to select ``metal``
 (Angstrom/ps) or ``real`` (Angstrom/fs). Atom IDs must define the same order in
 every frame.
+
+LAMMPS can also write ordinary XYZ files, for example:
+
+.. code-block:: text
+
+   dump           mdtrace_xyz all xyz 10 trajectory.xyz
+   dump_modify    mdtrace_xyz element Sr Ti O
+
+That ordinary ``dump xyz`` format is appropriate for visualization, but **not
+for MDtrace SED**: it records only the atom label and position, not velocities
+or a cell. For text SED input, use the preceding custom dump. Recent LAMMPS
+versions also provide ``dump extxyz`` with lattice and velocity fields; it is
+useful for interchange and visualization, but the documented, fully supported
+LAMMPS text path in MDtrace 1.1.0 is the custom dump above. See the official
+`LAMMPS dump documentation <https://docs.lammps.org/dump.html>`__ for XYZ and
+ExtXYZ output options.
 
 Text trajectories can be converted once to a reusable ``.mdtrace.nc`` cache
 or consumed sequentially without an intermediate file. See
